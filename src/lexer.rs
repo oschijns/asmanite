@@ -1,134 +1,184 @@
-use logos::Logos;
+//!
+//! Lexer for the extracting tokens
+//!
 
-// https://github.com/wiz-lang/wiz?tab=readme-ov-file
+use logos::Logos;
 
 /// Tokens in the language
 #[derive(Logos, Debug, PartialEq)]
 #[logos(skip r"[ \t\n\f]+")]
 enum Token {
     /// Script Escape
-    #[regex("#[[.*]]#")]
-    EmbeddedScript,
+    #[regex(r"#\{.*\}#", |lex| lex.slice().to_string())]
+    EmbeddedScript(String),
 
-    /// Token
+    /// Multi-line comment
+    #[regex(r"/\*([^*]|[\r\n]|(\*+([^*/]|[\r\n])))*\*+/", |lex| lex.slice().to_string())]
+    MultiComment(String),
+
+    /// Single-line comment
+    #[regex(r"//[^\n\r]*[\n\r]", |lex| lex.slice().to_string())]
+    SingleComment(String),
+
+    /// Comma separator
     #[token(",")]
     Comma,
 
-    /// Token
+    /// Member access
     #[token(".")]
-    Period,
+    MemberAccess,
 
-    /// Token
+    /// Define type
     #[token(":")]
-    Colon,
+    TypeDef,
 
-    /// Token
+    /// Expression separator
     #[token(";")]
     Semicolon,
 
-    /// Token
+    /// Open (
     #[token("(")]
     ParenStart,
 
-    /// Token
+    /// Close )
     #[token(")")]
     ParenEnd,
 
-    /// Token
+    /// Open [
     #[token("[")]
     BracketStart,
 
-    /// Token
+    /// Close ]
     #[token("]")]
     BracketEnd,
 
-    /// Token
+    /// Open {
     #[token("{")]
     BraceStart,
 
-    /// Token
+    /// Close }
     #[token("}")]
     BraceEnd,
 
-    /// Operator
+    /// Assign
     #[token("=")]
     Assign,
 
-    /// Comparison Operator
+    /// Equals
     #[token("==")]
     Equal,
 
-    /// Comparison Operator
+    /// Different
     #[token("!=")]
     Diff,
 
-    /// Comparison Operator
+    /// Lesser than
     #[token("<")]
     Lesser,
 
-    /// Comparison Operator
+    /// Greater than
     #[token(">")]
     Greater,
 
-    /// Comparison Operator
+    /// Lesser or equal
     #[token("<=")]
     LesserEq,
 
-    /// Comparison Operator
+    /// Greater or equal
     #[token(">=")]
     GreaterEq,
 
-    /// Boolean Operator
-    #[token("not")]
+    /// Boolean NOT
     #[token("!")]
     BoolNot,
 
-    /// Boolean Operator
-    #[token("and")]
+    /// Boolean AND
     #[token("&&")]
     BoolAnd,
 
-    /// Boolean Operator
-    #[token("or")]
+    /// Boolean OR
     #[token("||")]
     BoolOr,
 
-    /// Bitwise Operator
+    /// Bitwise inversion
     #[token("~")]
     BitInv,
 
-    /// Bitwise Operator
+    /// Bitwise AND or reference
     #[token("&")]
-    BitAnd,
+    Ampersand,
 
-    /// Bitwise Operator
+    /// Bitwise OR
     #[token("|")]
     BitOr,
 
-    /// Bitwise Operator
-    #[token("xor")]
+    /// Bitwise XOR
     #[token("^")]
     BitXor,
 
-    /// Arithmetic Operator
+    /// Increment
+    #[token("++")]
+    Incr,
+
+    /// Decrement
+    #[token("--")]
+    Decr,
+
+    /// Add
     #[token("+")]
     Plus,
 
-    /// Arithmetic Operator
+    /// Add with carry
+    #[token("+'")]
+    PlusCarry,
+
+    /// Subtract or negation
     #[token("-")]
     Minus,
 
-    /// Logical Bitshift
+    /// Subtract with carry
+    #[token("-'")]
+    MinusCarry,
+
+    /// Multiply or pointer
+    #[token("*")]
+    Asterix,
+
+    /// Arithmetic Operator
+    #[token("/")]
+    Divide,
+
+    /// Arithmetic Operator
+    #[token("%")]
+    Modulo,
+
+    /// Left Bitshift (logical or arithmetic)
     #[token("<<")]
     ShiftLeft,
 
-    /// Logical Bitshift
+    /// Right Bitshift (arithmetic)
     #[token(">>")]
-    ShiftRight,
+    ShiftRightArithmetic,
 
-    /// Operator or pointer
-    #[token("*")]
-    Asterix,
+    /// Right Bitshift (logical)
+    #[token(">>>")]
+    ShiftRightLogical,
+
+    /// Left Bitroll
+    #[token("<+")]
+    RotateLeft,
+
+    /// Left Bitroll with carry
+    #[token("<+'")]
+    RotateLeftCarry,
+
+    /// Right Bitroll
+    #[token("+>")]
+    RotateRight,
+
+    /// Right Bitroll with carry
+    #[token("+>'")]
+    RotateRightCarry,
 
     /// Address Operator
     #[token("@")]
@@ -142,67 +192,91 @@ enum Token {
     #[token("..=")]
     RangeInclusive,
 
-    /// Keyword
-    #[token("low")]
+    /// Access the low byte of a word
+    #[token("lo:")]
     ByteLow,
 
-    /// Keyword
-    #[token("high")]
+    /// Access the high byte of a word
+    #[token("hi:")]
     ByteHigh,
 
-    /// Keyword
-    #[token("mod")]
-    Mod,
+    /// Access the bank byte of a word
+    #[token("bk:")]
+    ByteBank,
 
-    /// Keyword
-    #[token("if")]
-    If,
+    /// Declare a variable
+    #[token("var")]
+    Var,
 
-    /// Keyword
-    #[token("else")]
-    Else,
-
-    /// Keyword
-    #[token("loop")]
-    Loop,
-
-    /// Keyword
-    #[token("for")]
-    For,
-
-    /// Keyword
-    #[token("while")]
-    While,
-
-    /// Keyword
-    #[token("do")]
-    Do,
-
-    /// Keyword
-    #[token("break")]
-    Break,
-
-    /// Keyword
-    #[token("continue")]
-    Continue,
-
-    /// Keyword
+    /// Declare a macro variable
     #[token("let")]
     Let,
 
-    /// Keyword
+    /// Declare a constant
     #[token("const")]
     Const,
 
-    /// Keyword
+    /// Declare a function
     #[token("fn")]
     Func,
 
-    /// Keyword
+    /// Declare a module
+    #[token("mod")]
+    Mod,
+
+    /// Conditional branching
+    #[token("if")]
+    If,
+
+    /// Conditional branching
+    #[token("else")]
+    Else,
+
+    /// Infinite loop
+    #[token("loop")]
+    Loop,
+
+    /// For-loop
+    #[token("for")]
+    For,
+
+    /// In
+    #[token("in")]
+    In,
+
+    /// For-loop step
+    #[token("step")]
+    Step,
+
+    /// Loop with exit condition
+    #[token("while")]
+    While,
+
+    /// Loop with exit condition
+    #[token("do")]
+    Do,
+
+    /// Break out of loop
+    #[token("break")]
+    Break,
+
+    /// Continue loop
+    #[token("continue")]
+    Continue,
+
+    /// Return a value
     #[token("return")]
     Return,
 
-    /// Keyword
+    /// Goto label
     #[token("goto")]
     Goto,
+
+    /// Label
+    #[regex(r"'\w+", |lex| lex.slice().to_string())]
+    Label(String),
+
+    /// Identifier
+    #[regex(r"\w+", |lex| lex.slice().to_string())]
+    Ident(String),
 }
