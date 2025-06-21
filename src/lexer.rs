@@ -4,14 +4,12 @@
 
 use logos::Logos;
 
+use crate::ast::Precedence;
+
 /// Tokens in the language
 #[derive(Logos, Debug, PartialEq)]
 #[logos(skip r"[ \t\n\f]+")]
 enum Token {
-    /// Script Escape
-    #[regex(r"#\{.*\}#", |lex| lex.slice().to_string())]
-    EmbeddedScript(String),
-
     /// Multi-line comment
     #[regex(r"/\*([^*]|[\r\n]|(\*+([^*/]|[\r\n])))*\*+/", |lex| lex.slice().to_string())]
     MultiComment(String),
@@ -28,9 +26,13 @@ enum Token {
     #[token(".")]
     MemberAccess,
 
-    /// Define type
+    /// Define type, label or access byte in word
     #[token(":")]
-    TypeDef,
+    Colon,
+
+    /// Separator between path elements
+    #[token("::")]
+    PathSep,
 
     /// Expression separator
     #[token(";")]
@@ -108,13 +110,25 @@ enum Token {
     #[token("&")]
     Ampersand,
 
+    /// Bitwise AND
+    #[token("&=")]
+    BitAndAssign,
+
     /// Bitwise OR
     #[token("|")]
     BitOr,
 
+    /// Bitwise OR
+    #[token("|=")]
+    BitOrAssign,
+
     /// Bitwise XOR
     #[token("^")]
     BitXor,
+
+    /// Bitwise XOR
+    #[token("^=")]
+    BitXorAssign,
 
     /// Increment
     #[token("++")]
@@ -128,57 +142,113 @@ enum Token {
     #[token("+")]
     Plus,
 
+    /// Add
+    #[token("+=")]
+    PlusAssign,
+
     /// Add with carry
     #[token("+'")]
     PlusCarry,
+
+    /// Add with carry
+    #[token("+'=")]
+    PlusCarryAssign,
 
     /// Subtract or negation
     #[token("-")]
     Minus,
 
+    /// Subtract or negation
+    #[token("-=")]
+    MinusAssign,
+
     /// Subtract with carry
     #[token("-'")]
     MinusCarry,
+
+    /// Subtract with carry
+    #[token("-'=")]
+    MinusCarryAssign,
 
     /// Multiply or pointer
     #[token("*")]
     Asterix,
 
-    /// Arithmetic Operator
-    #[token("/")]
-    Divide,
+    /// Multiply
+    #[token("*=")]
+    MulAssign,
 
-    /// Arithmetic Operator
+    /// Divide
+    #[token("/")]
+    Div,
+
+    /// Divide
+    #[token("/=")]
+    DivAssign,
+
+    /// Remainder
     #[token("%")]
-    Modulo,
+    Rem,
+
+    /// Remainder
+    #[token("%=")]
+    RemAssign,
 
     /// Left Bitshift (logical or arithmetic)
     #[token("<<")]
     ShiftLeft,
 
+    /// Left Bitshift (logical or arithmetic)
+    #[token("<<=")]
+    ShiftLeftAssign,
+
     /// Right Bitshift (arithmetic)
     #[token(">>")]
-    ShiftRightArithmetic,
+    ShiftRightArith,
+
+    /// Right Bitshift (arithmetic)
+    #[token(">>=")]
+    ShiftRightArithAssign,
 
     /// Right Bitshift (logical)
     #[token(">>>")]
-    ShiftRightLogical,
+    ShiftRightLogic,
+
+    /// Right Bitshift (logical)
+    #[token(">>>=")]
+    ShiftRightLogicAssign,
 
     /// Left Bitroll
     #[token("<+")]
     RotateLeft,
 
+    /// Left Bitroll
+    #[token("<+=")]
+    RotateLeftAssign,
+
     /// Left Bitroll with carry
     #[token("<+'")]
     RotateLeftCarry,
+
+    /// Left Bitroll with carry
+    #[token("<+'=")]
+    RotateLeftCarryAssign,
 
     /// Right Bitroll
     #[token("+>")]
     RotateRight,
 
+    /// Right Bitroll
+    #[token("+>=")]
+    RotateRightAssign,
+
     /// Right Bitroll with carry
     #[token("+>'")]
     RotateRightCarry,
+
+    /// Right Bitroll with carry
+    #[token("+>'=")]
+    RotateRightCarryAssign,
 
     /// Address Operator
     #[token("@")]
@@ -186,23 +256,19 @@ enum Token {
 
     /// Range Operator
     #[token("..")]
-    RangeExclusive,
+    RangeExc,
 
     /// Range Operator
     #[token("..=")]
-    RangeInclusive,
+    RangeInc,
 
-    /// Access the low byte of a word
-    #[token("lo:")]
-    ByteLow,
+    /// Boolean literal: False
+    #[token("false")]
+    False,
 
-    /// Access the high byte of a word
-    #[token("hi:")]
-    ByteHigh,
-
-    /// Access the bank byte of a word
-    #[token("bk:")]
-    ByteBank,
+    /// Boolean literal: True
+    #[token("true")]
+    True,
 
     /// Declare a variable
     #[token("var")]
@@ -272,11 +338,19 @@ enum Token {
     #[token("goto")]
     Goto,
 
+    /// Integer literal
+    #[regex(r"-?(\d[0-9_]*|0b[01][01_]*|0o[0-7][0-7_]*|0x[0-9A-Fa-f][0-9A-Fa-f_]*)", |lex| lex.slice().parse::<i64>().unwrap())]
+    IntLit(i64),
+
+    /// String literal
+    #[regex(r#""([^"\\\x00-\x1F]|\\(["\\bnfrt/]|u[a-fA-F0-9]{4}))*""#, |lex| lex.slice().to_owned())]
+    StrLit(String),
+
     /// Label
-    #[regex(r"'\w+", |lex| lex.slice().to_string())]
+    #[regex(r"'[A-Za-z_]\w*", |lex| lex.slice()[1..].to_string())]
     Label(String),
 
     /// Identifier
-    #[regex(r"\w+", |lex| lex.slice().to_string())]
+    #[regex(r"[A-Za-z_]\w*", |lex| lex.slice().to_string())]
     Ident(String),
 }
