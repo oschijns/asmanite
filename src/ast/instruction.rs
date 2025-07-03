@@ -12,5 +12,5 @@ pub struct Assign {
     pub left: String,
 
     /// Operand to evaluate
-    pub right: NumOperand,
+    pub right: Operand,
 }

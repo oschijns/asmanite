@@ -2,6 +2,8 @@
 
 use chumsky::prelude::*;
 
+use crate::ast::Ident;
+
 /*
     Operator/Expression	           | Associativity
     -------------------------------|--------------
@@ -22,48 +24,12 @@ use chumsky::prelude::*;
     return break continue goto     |
 */
 
-/// Compare two numerical values which result into a boolean
-#[derive(Debug, Clone, Copy)]
-pub enum CompOp {
-    /// a == b
-    Equal,
-
-    /// a != b
-    Diff,
-
-    /// a < b
-    Lesser,
-
-    /// a <= b
-    LesserEq,
-
-    /// a > b
-    Greater,
-
-    /// a >= b
-    GreaterEq,
-}
-
-/// Operation over two boolean values
-/// "Not" is the only unary boolean operator
-#[derive(Debug, Clone, Copy)]
-pub enum BoolOp {
-    /// a == b
-    Equal,
-
-    /// a != b
-    Diff,
-
-    /// a && b
-    And,
-
-    /// a || b
-    Or,
-}
-
 /// Unary operator over a numerical value
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum UnaryOp {
+    /// !a
+    Not,
+
     /// ~a
     Inv,
 
@@ -81,11 +47,38 @@ pub enum UnaryOp {
 
     /// a--
     PostDecr,
+
+    /// a as b
+    Cast(Ident),
 }
 
 /// Binary operator over two numerical values
 #[derive(Debug, Clone, Copy)]
 pub enum BinaryOp {
+    /// a == b
+    Equal,
+
+    /// a != b
+    Diff,
+
+    /// a < b
+    Lesser,
+
+    /// a <= b
+    LesserEq,
+
+    /// a > b
+    Greater,
+
+    /// a >= b
+    GreaterEq,
+
+    /// a && b
+    And,
+
+    /// a || b
+    Or,
+
     /// a & b
     BitAnd,
 

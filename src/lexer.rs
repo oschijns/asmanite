@@ -338,6 +338,10 @@ enum Token {
     #[token("goto")]
     Goto,
 
+    /// Cast type
+    #[token("as")]
+    As,
+
     /// Integer literal
     #[regex(r"-?(\d[0-9_]*|0b[01][01_]*|0o[0-7][0-7_]*|0x[0-9A-Fa-f][0-9A-Fa-f_]*)", |lex| lex.slice().parse::<i64>().unwrap())]
     IntLit(i64),
