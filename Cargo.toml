@@ -1,13 +1,13 @@
 [package]
-name = "metasm"
+name = "asmanite"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 
 # Parser
-logos = "0.14"
-chumsky = "0.10"
+logos = "0.15"
+chumsky = "0.11"
 
 # Assembler
 customasm = "0.13"

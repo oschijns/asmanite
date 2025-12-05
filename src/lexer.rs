@@ -4,27 +4,37 @@
 
 use logos::Logos;
 
-use crate::ast::Precedence;
-
 /// Tokens in the language
 #[derive(Logos, Debug, PartialEq)]
 #[logos(skip r"[ \t\n\f]+")]
-enum Token {
+pub enum Token {
     /// Multi-line comment
-    #[regex(r"/\*([^*]|[\r\n]|(\*+([^*/]|[\r\n])))*\*+/", |lex| lex.slice().to_string())]
-    MultiComment(String),
+    #[regex(r"/\*([^*]|[\r\n]|(\*+([^*/]|[\r\n])))*\*+/", logos::skip)]
+    MultiComment,
 
     /// Single-line comment
-    #[regex(r"//[^\n\r]*[\n\r]", |lex| lex.slice().to_string())]
-    SingleComment(String),
+    #[regex(r"//[^\n\r]*[\n\r]", logos::skip)]
+    SingleComment,
 
-    /// Comma separator
+    /// Integer literal
+    #[regex(r"[0-9][0-9_]*|0b[0-1][0-1_]*|0o[0-7][0-7_]*|0x[0-9a-fA-F][0-9a-fA-F_]*", |lex| lex.slice().parse::<u64>().unwrap())]
+    Integer(u64),
+
+    /// Character literal
+    #[regex(r"'[^']'", |lex| lex.slice().chars().skip(1).next().unwrap())]
+    Character(char),
+
+    /// String literal
+    #[regex(r#""([^"\\]|\\.)*""#, |lex| lex.slice().to_string())]
+    String(String),
+
+    /// Comma
     #[token(",")]
     Comma,
 
-    /// Member access
+    /// Period
     #[token(".")]
-    MemberAccess,
+    Period,
 
     /// Define type, label or access byte in word
     #[token(":")]
@@ -34,33 +44,33 @@ enum Token {
     #[token("::")]
     PathSep,
 
-    /// Expression separator
+    /// Semi-Colon
     #[token(";")]
     Semicolon,
 
     /// Open (
     #[token("(")]
-    ParenStart,
+    ParenOpen,
 
     /// Close )
     #[token(")")]
-    ParenEnd,
+    ParenClose,
 
     /// Open [
     #[token("[")]
-    BracketStart,
+    BracketOpen,
 
     /// Close ]
     #[token("]")]
-    BracketEnd,
+    BracketClose,
 
     /// Open {
     #[token("{")]
-    BraceStart,
+    BraceOpen,
 
     /// Close }
     #[token("}")]
-    BraceEnd,
+    BraceClose,
 
     /// Assign
     #[token("=")]
@@ -341,14 +351,6 @@ enum Token {
     /// Cast type
     #[token("as")]
     As,
-
-    /// Integer literal
-    #[regex(r"-?(\d[0-9_]*|0b[01][01_]*|0o[0-7][0-7_]*|0x[0-9A-Fa-f][0-9A-Fa-f_]*)", |lex| lex.slice().parse::<i64>().unwrap())]
-    IntLit(i64),
-
-    /// String literal
-    #[regex(r#""([^"\\\x00-\x1F]|\\(["\\bnfrt/]|u[a-fA-F0-9]{4}))*""#, |lex| lex.slice().to_owned())]
-    StrLit(String),
 
     /// Label
     #[regex(r"'[A-Za-z_]\w*", |lex| lex.slice()[1..].to_string())]
