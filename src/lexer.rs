@@ -2,31 +2,18 @@
 //! Lexer for the extracting tokens
 //!
 
-use logos::Logos;
+use logos::{Lexer, Logos};
 
 /// Tokens in the language
 #[derive(Logos, Debug, PartialEq)]
-#[logos(skip r"[ \t\n\f]+")]
-pub enum Token {
-    /// Multi-line comment
-    #[regex(r"/\*([^*]|[\r\n]|(\*+([^*/]|[\r\n])))*\*+/", logos::skip)]
-    MultiComment,
-
-    /// Single-line comment
-    #[regex(r"//[^\n\r]*[\n\r]", logos::skip)]
-    SingleComment,
-
-    /// Integer literal
-    #[regex(r"[0-9][0-9_]*|0b[0-1][0-1_]*|0o[0-7][0-7_]*|0x[0-9a-fA-F][0-9a-fA-F_]*", |lex| lex.slice().parse::<u64>().unwrap())]
-    Integer(u64),
-
-    /// Character literal
-    #[regex(r"'[^']'", |lex| lex.slice().chars().skip(1).next().unwrap())]
-    Character(char),
-
-    /// String literal
-    #[regex(r#""([^"\\]|\\.)*""#, |lex| lex.slice().to_string())]
-    String(String),
+#[logos(skip r"[ \t\n\f]+")] // white spaces
+#[logos(skip r"//[^\n\r]*[\n\r]")] // single-line comments
+#[logos(skip r"/\*([^*]|[\r\n]|(\*+([^*/]|[\r\n])))*\*+/")] // multi-line comments
+enum Token {
+    /// Documentation comment
+    #[regex(r"///[^\n\r]*[\n\r]", parse_single_comment)]
+    #[regex(r"/\*\*([^*]|[\r\n]|(\*+([^*/]|[\r\n])))*\*+/", parse_multi_comment)]
+    DocComment(String),
 
     /// Comma
     #[token(",")]
@@ -352,11 +339,119 @@ pub enum Token {
     #[token("as")]
     As,
 
+    /// Integer literal
+    #[regex(r"-?\d[0-9_]*", parse_integer)]
+    #[regex(r"-?0b[01][01_]*", parse_integer)]
+    #[regex(r"-?0o[0-7][0-7_]*", parse_integer)]
+    #[regex(r"-?0x[0-9A-Fa-f][0-9A-Fa-f_]*", parse_integer)]
+    IntLit(i64),
+
+    /// Floating point literal
+    #[regex(r"[+-]?\d+\.\d*([eE][+-]?\d+)?", parse_float)]
+    #[regex(r"[+-]?\.\d+([eE][+-]?\d+)?", parse_float)]
+    FloatLit(f64),
+
+    /// Character literal
+    #[regex(r"'[^']'", parse_character)]
+    #[regex(r"'\\.'", parse_character_esc)]
+    #[regex(r"'\\x[0-9A-Fa-f]{2}'", parse_character_hex)]
+    CharLit(char),
+
+    /// String literal
+    #[regex(r#""([^"\\]|\\.)*""#, parse_string)]
+    StrLit(String),
+
     /// Label
-    #[regex(r"'[A-Za-z_]\w*", |lex| lex.slice()[1..].to_string())]
+    #[regex(r"'[A-Za-z_]\w*", parse_label)]
     Label(String),
 
     /// Identifier
-    #[regex(r"[A-Za-z_]\w*", |lex| lex.slice().to_string())]
+    #[regex(r"[A-Za-z_]\w*", parse_identifier)]
     Ident(String),
+}
+
+/// Parse single-line doc-comment `/// ...`
+#[inline]
+fn parse_single_comment<'s>(lex: &Lexer<'s, Token>) -> String {
+    // skip `///`
+    lex.slice()[3..].to_string()
+}
+
+/// Parse multi-line doc-comment `/** ... */`
+#[inline]
+fn parse_multi_comment<'s>(lex: &Lexer<'s, Token>) -> String {
+    // remove the `/**` and `*/` on both ends
+    let seq = lex.slice();
+    seq[3..seq.len() - 2].to_string()
+}
+
+/// Parse integer literal `0`
+#[inline]
+fn parse_integer<'s>(lex: &Lexer<'s, Token>) -> i64 {
+    lex.slice().parse::<i64>().unwrap()
+}
+
+/// Parse floating point number literal `0.0`
+#[inline]
+fn parse_float<'s>(lex: &Lexer<'s, Token>) -> f64 {
+    lex.slice().parse::<f64>().unwrap()
+}
+
+/// Parse character literal `'a'`
+#[inline]
+fn parse_character<'s>(lex: &Lexer<'s, Token>) -> char {
+    // skip `'`
+    lex.slice().chars().nth(1).unwrap()
+}
+
+/// Parse character literal `'\0'`
+#[inline]
+fn parse_character_esc<'s>(lex: &Lexer<'s, Token>) -> char {
+    // skip `'\`
+    let c = lex.slice().chars().nth(2).unwrap();
+    match c {
+        '0' => '\0',   // null
+        'n' => '\n',   // new line
+        'r' => '\r',   // carriage return
+        't' => '\t',   // horizontal tab
+        '\'' => '\'',  // single quote
+        '\\' => '\\',  // backslash
+        'a' => '\x07', // audible bell
+        'b' => '\x08', // backspace
+        'v' => '\x0B', // vertical tab
+        'f' => '\x0C', // form feed
+        _ => c,
+    }
+}
+
+/// Parse character literal `'\x00'`
+#[inline]
+fn parse_character_hex<'s>(lex: &Lexer<'s, Token>) -> char {
+    // skip `'\x`
+    u8::from_str_radix(&lex.slice()[3..5], 16).unwrap() as char
+}
+
+/// Parse string literal `"..."`
+#[inline]
+fn parse_string<'s>(lex: &Lexer<'s, Token>) -> String {
+    // remove the double quotes on both ends
+    let seq = lex.slice();
+    seq[1..seq.len() - 1].to_owned()
+}
+
+/// Parse label literal `'label`
+#[inline]
+fn parse_label<'s>(lex: &Lexer<'s, Token>) -> String {
+    lex.slice()[1..].to_string()
+}
+
+/// Parse identifier `ident`
+#[inline]
+fn parse_identifier<'s>(lex: &Lexer<'s, Token>) -> String {
+    lex.slice().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
 }
