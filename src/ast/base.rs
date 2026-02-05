@@ -5,13 +5,22 @@ use std::fmt;
 use crate::lexer::Token;
 
 /// Error encountered when converting tokens into a given element
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, Clone, Copy, PartialEq, Eq)]
 pub enum TokenError {
-    #[error("Expected a primitive literal but got: {0}")]
-    PrimLit(Token),
+    #[error("Expected a primitive literal")]
+    PrimLit,
 
-    #[error("Expected a primitive type but got: {0}")]
-    PrimType(Token),
+    #[error("Expected a primitive type")]
+    PrimType,
+
+    #[error("Expected an unary operator")]
+    Unary,
+
+    #[error("Expected a binary operator")]
+    Binary,
+
+    #[error("Expected an assignment operator")]
+    Assign,
 }
 
 /// Identifier
@@ -45,6 +54,7 @@ pub enum PrimLit {
 }
 
 /// Primitive types available for operations
+#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrimType {
     /// Unsigned 8-bits integer type
@@ -108,6 +118,7 @@ pub enum PrimType {
 */
 
 /// Unary operator over a value
+#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnaryOp {
     /// !a
@@ -133,6 +144,7 @@ pub enum UnaryOp {
 }
 
 /// Binary operator over two values
+#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOp {
     /// a == b
@@ -211,6 +223,10 @@ pub enum BinaryOp {
     RotRightCarry,
 }
 
+/// Assignement wrapper for binary operator
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AssignOp(pub BinaryOp);
+
 /// Print the identifier
 impl fmt::Display for Ident<'_> {
     #[inline]
@@ -241,7 +257,7 @@ impl TryFrom<Token> for PrimLit {
             Token::CharLit (chr)   => Ok(Self::Char(chr)),
             Token::IntLit  (int)   => Ok(Self::Int(int)),
             Token::FloatLit(float) => Ok(Self::Float(float)),
-            _ => Err(TokenError::PrimLit(value)),
+            _ => Err(TokenError::PrimLit),
         }
     }
 }
@@ -279,7 +295,7 @@ impl TryFrom<Token> for PrimType {
             Token::F16 => Ok(Self::F16),
             Token::F32 => Ok(Self::F32),
             Token::F64 => Ok(Self::F64),
-            _ => Err(TokenError::PrimType(value)),
+            _ => Err(TokenError::PrimType),
         }
     }
 }
@@ -306,6 +322,24 @@ impl fmt::Display for PrimType {
     }
 }
 
+/// Try to get an unary operation from a token
+/// note: post increment and post decrement cannot be obtained here
+impl TryFrom<Token> for UnaryOp {
+    type Error = TokenError;
+
+    #[rustfmt::skip]
+    fn try_from(value: Token) -> Result<Self, Self::Error> {
+        match value {
+            Token::BoolNot => Ok(Self::Not),
+            Token::BitInv  => Ok(Self::Inv),
+            Token::Minus   => Ok(Self::Neg),
+            Token::Incr    => Ok(Self::PreIncr),
+            Token::Decr    => Ok(Self::PreDecr),
+            _ => Err(TokenError::Unary),
+        }
+    }
+}
+
 /// Print the unary operation
 impl fmt::Display for UnaryOp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -315,6 +349,43 @@ impl fmt::Display for UnaryOp {
             Self::Neg => write!(f, "-"),
             Self::PreIncr | Self::PostIncr => write!(f, "++"),
             Self::PreDecr | Self::PostDecr => write!(f, "--"),
+        }
+    }
+}
+
+/// Try to get a binary operation from a token
+impl TryFrom<Token> for BinaryOp {
+    type Error = TokenError;
+
+    #[rustfmt::skip]
+    fn try_from(value: Token) -> Result<Self, Self::Error> {
+        match value {
+            Token::Equal            => Ok(Self::Equal),
+            Token::Diff             => Ok(Self::Diff),
+            Token::Lesser           => Ok(Self::Lesser),
+            Token::LesserEq         => Ok(Self::LesserEq),
+            Token::Greater          => Ok(Self::Greater),
+            Token::GreaterEq        => Ok(Self::GreaterEq),
+            Token::BoolAnd          => Ok(Self::And),
+            Token::BoolOr           => Ok(Self::Or),
+            Token::BitAnd           => Ok(Self::BitAnd),
+            Token::BitOr            => Ok(Self::BitOr),
+            Token::BitXor           => Ok(Self::BitXor),
+            Token::Plus             => Ok(Self::Add),
+            Token::PlusCarry        => Ok(Self::AddCarry),
+            Token::Minus            => Ok(Self::Sub),
+            Token::MinusCarry       => Ok(Self::SubCarry),
+            Token::Mul              => Ok(Self::Mul),
+            Token::Div              => Ok(Self::Div),
+            Token::Rem              => Ok(Self::Rem),
+            Token::ShiftLeft        => Ok(Self::ShLeft),
+            Token::ShiftRightArith  => Ok(Self::ShRightArith),
+            Token::ShiftRightLogic  => Ok(Self::ShRightLogic),
+            Token::RotateLeft       => Ok(Self::RotLeft),
+            Token::RotateLeftCarry  => Ok(Self::RotLeftCarry),
+            Token::RotateRight      => Ok(Self::RotRight),
+            Token::RotateRightCarry => Ok(Self::RotRightCarry),
+            _ => Err(TokenError::Binary),
         }
     }
 }
@@ -350,5 +421,42 @@ impl fmt::Display for BinaryOp {
             Self::RotRight      => write!(f, "+>" ),
             Self::RotRightCarry => write!(f, "+>'"),
         }
+    }
+}
+
+/// Try to get a assignement operation from a token
+impl TryFrom<Token> for AssignOp {
+    type Error = TokenError;
+
+    #[rustfmt::skip]
+    fn try_from(value: Token) -> Result<Self, Self::Error> {
+        match value {
+            Token::BitAndAssign           => Ok(Self(BinaryOp::BitAnd)),
+            Token::BitOrAssign            => Ok(Self(BinaryOp::BitOr)),
+            Token::BitXorAssign           => Ok(Self(BinaryOp::BitXor)),
+            Token::PlusAssign             => Ok(Self(BinaryOp::Add)),
+            Token::PlusCarryAssign        => Ok(Self(BinaryOp::AddCarry)),
+            Token::MinusAssign            => Ok(Self(BinaryOp::Sub)),
+            Token::MinusCarryAssign       => Ok(Self(BinaryOp::SubCarry)),
+            Token::MulAssign              => Ok(Self(BinaryOp::Mul)),
+            Token::DivAssign              => Ok(Self(BinaryOp::Div)),
+            Token::RemAssign              => Ok(Self(BinaryOp::Rem)),
+            Token::ShiftLeftAssign        => Ok(Self(BinaryOp::ShLeft)),
+            Token::ShiftRightArithAssign  => Ok(Self(BinaryOp::ShRightArith)),
+            Token::ShiftRightLogicAssign  => Ok(Self(BinaryOp::ShRightLogic)),
+            Token::RotateLeftAssign       => Ok(Self(BinaryOp::RotLeft)),
+            Token::RotateLeftCarryAssign  => Ok(Self(BinaryOp::RotLeftCarry)),
+            Token::RotateRightAssign      => Ok(Self(BinaryOp::RotRight)),
+            Token::RotateRightCarryAssign => Ok(Self(BinaryOp::RotRightCarry)),
+            _ => Err(TokenError::Assign),
+        }
+    }
+}
+
+/// Print the assignement operation
+impl fmt::Display for AssignOp {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "{}=", self.0)
     }
 }

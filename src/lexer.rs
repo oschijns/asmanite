@@ -133,7 +133,7 @@ pub enum Token {
 
     /// Bitwise AND or reference
     #[token("&")]
-    Ampersand,
+    BitAnd,
 
     /// Bitwise AND
     #[token("&=")]
@@ -197,7 +197,7 @@ pub enum Token {
 
     /// Multiply or pointer
     #[token("*")]
-    Asterix,
+    Mul,
 
     /// Multiply
     #[token("*=")]
@@ -478,7 +478,7 @@ impl fmt::Display for Token {
             Self::BoolAnd                => write!(f, "&&"              ),
             Self::BoolOr                 => write!(f, "||"              ),
             Self::BitInv                 => write!(f, "~"               ),
-            Self::Ampersand              => write!(f, "&"               ),
+            Self::BitAnd                 => write!(f, "&"               ),
             Self::BitAndAssign           => write!(f, "&="              ),
             Self::BitOr                  => write!(f, "|"               ),
             Self::BitOrAssign            => write!(f, "|="              ),
@@ -494,7 +494,7 @@ impl fmt::Display for Token {
             Self::MinusAssign            => write!(f, "-="              ),
             Self::MinusCarry             => write!(f, "-'"              ),
             Self::MinusCarryAssign       => write!(f, "-'="             ),
-            Self::Asterix                => write!(f, "*"               ),
+            Self::Mul                    => write!(f, "*"               ),
             Self::MulAssign              => write!(f, "*="              ),
             Self::Div                    => write!(f, "/"               ),
             Self::DivAssign              => write!(f, "/="              ),
