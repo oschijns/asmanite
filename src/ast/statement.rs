@@ -1,10 +1,10 @@
 //!
 
-use crate::ast::{expression::*, operator::*};
+use crate::ast::{base::*, expression::*};
 use chumsky::prelude::*;
 
 /// Assignement instruction with an optional binary operation
-pub struct Assign {
+pub struct Assign<'src> {
     /// Assignment combined with a binary operation
     pub operation: Option<BinaryOp>,
 
@@ -12,5 +12,5 @@ pub struct Assign {
     pub left: String,
 
     /// Operand to evaluate
-    pub right: Operand,
+    pub right: Expr<'src>,
 }

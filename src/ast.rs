@@ -6,10 +6,10 @@
 pub mod expression;
 
 ///
-pub mod instruction;
+pub mod statement;
 
 ///
-pub mod operator;
+pub mod base;
 
 /// Identifier
 #[derive(Debug, Clone)]
