@@ -18,3 +18,4 @@ serde    .workspace = true
 # Lexer & Parser
 logos = "0.16"
 chumsky = "0.13"
+ariadne = "0.6"

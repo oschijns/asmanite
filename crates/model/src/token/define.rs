@@ -261,6 +261,39 @@ pub enum VarDecl {
     Const,
 }
 
+/// Type definition keyword 'struct', 'enum', 'union'
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TypeDef {
+    /// Structure
+    Struct,
+
+    /// Enumeration
+    Enum,
+
+    /// Memory Union
+    Union,
+}
+
+/// Literal
+#[derive(Debug, Clone, PartialEq)]
+pub enum Literal {
+    /// Boolean
+    Bool(BoolLit),
+
+    /// Character
+    Char(CharLit),
+
+    /// Integer
+    Int(IntLit),
+
+    /// Floating point number
+    Float(FloatLit),
+
+    /// String
+    Str(StrLit),
+}
+
 /// Boolean literal
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BoolLit(pub bool);

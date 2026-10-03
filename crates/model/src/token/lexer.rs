@@ -2,6 +2,7 @@ use crate::token::define::*;
 use logos::{Lexer, Logos};
 
 /// Tokens in the language
+#[repr(u16)]
 #[derive(Logos, Debug, Clone, PartialEq)]
 #[logos(skip r"[ \t\n\f]+")] // white spaces
 pub enum Token {
@@ -127,6 +128,12 @@ pub enum Token {
     #[token("static", |_| VarDecl::Static)]
     #[token("const" , |_| VarDecl::Const )]
     VarDecl(VarDecl),
+
+    /// Declare a variable/constant
+    #[token("struct", |_| TypeDef::Struct)]
+    #[token("enum"  , |_| TypeDef::Enum  )]
+    #[token("union" , |_| TypeDef::Union )]
+    TypeDef(TypeDef),
 
     /// Declare a function
     #[token("fn")]
