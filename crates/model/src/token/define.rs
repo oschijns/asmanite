@@ -1,5 +1,33 @@
 use std::fmt::{self, Write};
 
+/// Implement Display trait
+macro_rules! impl_display {
+    ($type:ty) => {
+        impl fmt::Display for $type {
+            #[inline]
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "{}", self.0)
+            }
+        }
+    };
+    ($type:ty, $fmt:literal) => {
+        impl fmt::Display for $type {
+            #[inline]
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, $fmt, self.0)
+            }
+        }
+    };
+    ($type:ty, str) => {
+        impl fmt::Display for $type {
+            #[inline]
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str(self.into())
+            }
+        }
+    };
+}
+
 /// Define a primitive type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Primitive {
@@ -41,7 +69,7 @@ impl fmt::Display for Primitive {
 
 /// Type of primitive values
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display, strum::IntoStaticStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
 pub enum PrimType {
     /// Unsigned integer
     #[strum(serialize = "uint")]
@@ -55,6 +83,7 @@ pub enum PrimType {
     #[strum(serialize = "float")]
     Float,
 }
+impl_display!(PrimType, str);
 
 /// Assignment instruction
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -140,7 +169,7 @@ impl fmt::Display for Operator {
 
 /// Type of operator
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display, strum::IntoStaticStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
 pub enum OpType {
     /// Equality '=='
     #[strum(serialize = "==")]
@@ -242,6 +271,7 @@ pub enum OpType {
     #[strum(serialize = "%")]
     Rem,
 }
+impl_display!(OpType, str);
 
 /// Define a delimiter token '(', ')', '[', ']', '{', '}'
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -309,13 +339,7 @@ pub enum DelimType {
     #[strum(serialize = "[]")]
     Bracket,
 }
-
-impl fmt::Display for DelimType {
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.into())
-    }
-}
+impl_display!(DelimType, str);
 
 /// Range '..' or '..='
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -347,7 +371,7 @@ impl fmt::Display for Range {
 
 /// Declare a variable/constant
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display, strum::IntoStaticStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
 pub enum VarDecl {
     /// Variable
     #[strum(serialize = "var")]
@@ -365,10 +389,11 @@ pub enum VarDecl {
     #[strum(serialize = "const")]
     Const,
 }
+impl_display!(VarDecl, str);
 
 /// Type definition keyword 'struct', 'enum', 'union'
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display, strum::IntoStaticStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
 pub enum TypeDef {
     /// Structure
     #[strum(serialize = "struct")]
@@ -382,6 +407,7 @@ pub enum TypeDef {
     #[strum(serialize = "union")]
     Union,
 }
+impl_display!(TypeDef, str);
 
 /// Literal
 #[derive(Debug, Clone, PartialEq)]
@@ -430,25 +456,6 @@ pub struct Ident(pub Box<str>);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Label(pub Box<str>);
 
-macro_rules! impl_display {
-    ($type:ty) => {
-        impl fmt::Display for $type {
-            #[inline]
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                write!(f, "{}", self.0)
-            }
-        }
-    };
-
-    ($type:ty, $fmt:literal) => {
-        impl fmt::Display for $type {
-            #[inline]
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                write!(f, $fmt, self.0)
-            }
-        }
-    };
-}
 impl_display!(BoolLit);
 impl_display!(CharLit, "'{}'");
 impl_display!(IntLit);
