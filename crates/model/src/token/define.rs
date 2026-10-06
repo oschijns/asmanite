@@ -1,3 +1,5 @@
+use std::fmt::{self, Write};
+
 /// Define a primitive type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Primitive {
@@ -25,17 +27,32 @@ impl Primitive {
     }
 }
 
+impl fmt::Display for Primitive {
+    #[rustfmt::skip]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let prefix = match self.prim_type {
+            PrimType::UInt  => 'u',
+            PrimType::Int   => 'i',
+            PrimType::Float => 'f',
+        };
+        write!(f, "{}{}", prefix, self.size * 8)
+    }
+}
+
 /// Type of primitive values
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display, strum::IntoStaticStr)]
 pub enum PrimType {
     /// Unsigned integer
+    #[strum(serialize = "uint")]
     UInt,
 
     /// Signed integer
+    #[strum(serialize = "int")]
     Int,
 
     /// Floating point number
+    #[strum(serialize = "float")]
     Float,
 }
 
@@ -70,6 +87,16 @@ impl Assign {
     }
 }
 
+impl fmt::Display for Assign {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(op) = self.op {
+            op.fmt(f)?;
+        }
+        f.write_char('=')
+    }
+}
+
 /// Operator with optional carry flag
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Operator {
@@ -100,83 +127,119 @@ impl Operator {
     }
 }
 
+impl fmt::Display for Operator {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.op_type.into())?;
+        if self.carry {
+            f.write_char('\'')?;
+        }
+        Ok(())
+    }
+}
+
 /// Type of operator
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display, strum::IntoStaticStr)]
 pub enum OpType {
     /// Equality '=='
+    #[strum(serialize = "==")]
     Eq,
 
     /// Difference '!='
+    #[strum(serialize = "!=")]
     Diff,
 
     /// Lesser than '<'
+    #[strum(serialize = "<")]
     Lt,
 
     /// Greater than '>'
+    #[strum(serialize = ">")]
     Gt,
 
     /// Lesser or equal than '<='
+    #[strum(serialize = "<=")]
     LEq,
 
     /// Greater or equal than '>='
+    #[strum(serialize = ">=")]
     GEq,
 
     /// Logical NOT '!'
+    #[strum(serialize = "!")]
     Not,
 
     /// Logical AND '&&'
+    #[strum(serialize = "&&")]
     And,
 
     /// Logical OR '||'
+    #[strum(serialize = "||")]
     Or,
 
     /// Bitwise INV '~'
+    #[strum(serialize = "~")]
     BitInv,
 
     /// Bitwise AND '&'
+    #[strum(serialize = "&")]
     BitAnd,
 
     /// Bitwise OR '|'
+    #[strum(serialize = "|")]
     BitOr,
 
     /// Bitwise XOR '^'
+    #[strum(serialize = "^")]
     BitXor,
 
     /// Shift Left '<<'
+    #[strum(serialize = "<<")]
     ShL,
 
     /// Shift Right (arithmetic) '>>'
+    #[strum(serialize = ">>")]
     ShRA,
 
     /// Shift Right (logical) '>>>'
+    #[strum(serialize = ">>>")]
     ShRL,
 
     /// Rotate bits Left '<+'
+    #[strum(serialize = "<+")]
     RotL,
 
     /// Rotate bits Right '+>'
+    #[strum(serialize = "+>")]
     RotR,
 
     /// Increment '++'
+    #[strum(serialize = "++")]
     Inc,
 
     /// Decrement '--'
+    #[strum(serialize = "--")]
     Dec,
 
     /// Addition '+'
+    #[strum(serialize = "+")]
     Add,
 
     /// Subtraction '-'
+    #[strum(serialize = "-")]
     Sub,
 
     /// Multiplication '*'
+    #[strum(serialize = "*")]
     Mul,
 
     /// Division '/'
+    #[strum(serialize = "/")]
     Div,
 
     /// Remainder '%'
+    #[strum(serialize = "%")]
     Rem,
 }
 
@@ -210,18 +273,48 @@ impl Delimiter {
     }
 }
 
+impl fmt::Display for Delimiter {
+    #[rustfmt::skip]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let d = if self.is_close {
+            match self.delim_type {
+                DelimType::Paren   => ')',
+                DelimType::Brace   => '}',
+                DelimType::Bracket => ']',
+            }
+        } else {
+            match self.delim_type {
+                DelimType::Paren   => '(',
+                DelimType::Brace   => '{',
+                DelimType::Bracket => '[',
+            }
+        };
+        f.write_char(d)
+    }
+}
+
 /// Type of delimiter
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
 pub enum DelimType {
     /// Parenthesis '(', ')'
+    #[strum(serialize = "()")]
     Paren,
 
     /// Brace '{', '}'
+    #[strum(serialize = "{}")]
     Brace,
 
     /// Bracket '[', ']'
+    #[strum(serialize = "[]")]
     Bracket,
+}
+
+impl fmt::Display for DelimType {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.into())
+    }
 }
 
 /// Range '..' or '..='
@@ -244,34 +337,49 @@ impl Range {
     }
 }
 
+impl fmt::Display for Range {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = if self.inclusive { "..=" } else { ".." };
+        f.write_str(s)
+    }
+}
+
 /// Declare a variable/constant
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display, strum::IntoStaticStr)]
 pub enum VarDecl {
     /// Variable
+    #[strum(serialize = "var")]
     Var,
 
     /// Let
+    #[strum(serialize = "let")]
     Let,
 
     /// Static variable
+    #[strum(serialize = "static")]
     Static,
 
     /// Constant
+    #[strum(serialize = "const")]
     Const,
 }
 
 /// Type definition keyword 'struct', 'enum', 'union'
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display, strum::IntoStaticStr)]
 pub enum TypeDef {
     /// Structure
+    #[strum(serialize = "struct")]
     Struct,
 
     /// Enumeration
+    #[strum(serialize = "enum")]
     Enum,
 
     /// Memory Union
+    #[strum(serialize = "union")]
     Union,
 }
 
@@ -321,3 +429,30 @@ pub struct Ident(pub Box<str>);
 /// Label identifier
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Label(pub Box<str>);
+
+macro_rules! impl_display {
+    ($type:ty) => {
+        impl fmt::Display for $type {
+            #[inline]
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "{}", self.0)
+            }
+        }
+    };
+
+    ($type:ty, $fmt:literal) => {
+        impl fmt::Display for $type {
+            #[inline]
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, $fmt, self.0)
+            }
+        }
+    };
+}
+impl_display!(BoolLit);
+impl_display!(CharLit, "'{}'");
+impl_display!(IntLit);
+impl_display!(FloatLit);
+impl_display!(StrLit, r#""{}""#);
+impl_display!(Ident);
+impl_display!(Label, "'{}");
