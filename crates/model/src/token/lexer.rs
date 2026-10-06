@@ -1,10 +1,21 @@
 use crate::token::define::*;
-use logos::{Lexer, Logos};
+use core::hash::Hash;
+use tokora::logos::{self, Lexer, Logos};
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LexError;
+
+impl From<()> for LexError {
+    fn from(_: ()) -> Self {
+        LexError
+    }
+}
 
 /// Tokens in the language
 #[repr(u16)]
-#[derive(Logos, Debug, Clone, PartialEq)]
-#[logos(skip r"[ \t\n\f]+")] // white spaces
+#[derive(Logos, Debug, Clone, strum::EnumDiscriminants)]
+#[logos(crate = logos, skip r"[ \t\n\f]+", error = LexError)]
+#[strum_discriminants(name(TokenKind), derive(strum::Display, Hash))]
 pub enum Token {
     /// Comma
     #[token(",")]
@@ -229,6 +240,21 @@ pub enum Token {
     /// Identifier
     #[regex(r"[A-Za-z_]\w*", Ident::parse)]
     Ident(Ident),
+}
+
+// Define how tokora pull tokens
+impl tokora::Token<'_> for Token {
+    type Kind = TokenKind;
+    type Error = LexError;
+
+    const SCAN_LOOKAHEAD: tokora::ScanLookahead = tokora::ScanLookahead::Unbounded;
+
+    fn kind(&self) -> TokenKind {
+        TokenKind::from(self)
+    }
+    fn is_trivia(&self) -> bool {
+        false
+    }
 }
 
 /// Parse single-line doc-comment `/// ...`

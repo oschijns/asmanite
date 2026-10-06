@@ -28,6 +28,10 @@ macro_rules! impl_display {
     };
 }
 
+/// Define the precedence of an operator.
+/// Higher values mean the operator have a higher priority than others.
+pub type Precedence = i8;
+
 /// Define a primitive type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Primitive {
@@ -276,7 +280,7 @@ impl_display!(OpType, str);
 impl OpType {
     /// Provide the precedence of the binary operators.
     #[rustfmt::skip]
-    pub const fn precedence_binary(self) -> i8 {
+    pub const fn precedence_binary(self) -> Precedence {
         match self {
             Self::Mul    |      // *
             Self::Div    |      // /
@@ -299,13 +303,13 @@ impl OpType {
             Self::GEq    =>  3, // >=
             Self::And    =>  2, // &&
             Self::Or     =>  1, // ||
-            _            => i8::MIN,
+            _ => Precedence::MIN,
         }
     }
 
     /// Provide the precedence of the unary operators.
     #[rustfmt::skip]
-    pub const fn precedence_unary(self) -> i8 {
+    pub const fn precedence_unary(self) -> Precedence {
         match self {
             Self::Not    |      // !
             Self::BitInv |      // ~
@@ -315,7 +319,7 @@ impl OpType {
             Self::Sub    |      // -
             Self::Mul    |      // *
             Self::BitAnd => 10, // &
-            _            => i8::MIN,
+            _ => Precedence::MIN,
         }
     }
 }

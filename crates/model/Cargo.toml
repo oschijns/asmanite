@@ -16,6 +16,6 @@ thiserror.workspace = true
 serde    .workspace = true
 
 # Lexer & Parser
-logos  = "0.16"
+#logos  = "0.16"
 tokora = { version = "0.11", features = ["logos" ] }
 strum  = { version = "0.28", features = ["derive"] }
