@@ -273,6 +273,53 @@ pub enum OpType {
 }
 impl_display!(OpType, str);
 
+impl OpType {
+    /// Provide the precedence of the binary operators.
+    #[rustfmt::skip]
+    pub const fn precedence_binary(self) -> i8 {
+        match self {
+            Self::Mul    |      // *
+            Self::Div    |      // /
+            Self::Rem    =>  9, // %
+            Self::Add    |      // +
+            Self::Sub    =>  8, // -
+            Self::ShL    |      // <<
+            Self::ShRA   |      // >>
+            Self::ShRL   |      // >>>
+            Self::RotL   |      // <+
+            Self::RotR   =>  7, // +>
+            Self::BitAnd =>  6, // &
+            Self::BitXor =>  5, // ^
+            Self::BitOr  =>  4, // |
+            Self::Eq     |      // ==
+            Self::Diff   |      // !=
+            Self::Lt     |      // <
+            Self::Gt     |      // >
+            Self::LEq    |      // <=
+            Self::GEq    =>  3, // >=
+            Self::And    =>  2, // &&
+            Self::Or     =>  1, // ||
+            _            => i8::MIN,
+        }
+    }
+
+    /// Provide the precedence of the unary operators.
+    #[rustfmt::skip]
+    pub const fn precedence_unary(self) -> i8 {
+        match self {
+            Self::Not    |      // !
+            Self::BitInv |      // ~
+            Self::Inc    |      // ++
+            Self::Dec    |      // --
+            Self::Add    |      // +
+            Self::Sub    |      // -
+            Self::Mul    |      // *
+            Self::BitAnd => 10, // &
+            _            => i8::MIN,
+        }
+    }
+}
+
 /// Define a delimiter token '(', ')', '[', ']', '{', '}'
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Delimiter {
