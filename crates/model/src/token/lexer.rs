@@ -212,21 +212,21 @@ pub enum Token {
     BoolLit(BoolLit),
 
     /// Character literal
-    #[regex(r"'[^']'", CharLit::parse)]
-    #[regex(r"'\\.'", CharLit::parse_esc)]
-    #[regex(r"'\\x[0-9A-Fa-f]{2}'", CharLit::parse_hex)]
+    #[regex(r"'[^']'"             , |c| CharLit::parse    (c))]
+    #[regex(r"'\\.'"              , |c| CharLit::parse_esc(c))]
+    #[regex(r"'\\x[0-9A-Fa-f]{2}'", |c| CharLit::parse_hex(c))]
     CharLit(CharLit),
 
     /// Integer literal
-    #[regex(r"\d[0-9_]*", IntLit::parse)]
-    #[regex(r"0b[01][01_]*", IntLit::parse)]
-    #[regex(r"0o[0-7][0-7_]*", IntLit::parse)]
-    #[regex(r"0x[0-9A-Fa-f][0-9A-Fa-f_]*", IntLit::parse)]
+    #[regex(r"\d[0-9_]*"                 , |i| IntLit::parse(i))]
+    #[regex(r"0b[01][01_]*"              , |i| IntLit::parse(i))]
+    #[regex(r"0o[0-7][0-7_]*"            , |i| IntLit::parse(i))]
+    #[regex(r"0x[0-9A-Fa-f][0-9A-Fa-f_]*", |i| IntLit::parse(i))]
     IntLit(IntLit),
 
     /// Floating point literal
-    #[regex(r"\d+\.\d*([eE][+-]?\d+)?", FloatLit::parse)]
-    #[regex(r"\.\d+([eE][+-]?\d+)?", FloatLit::parse)]
+    #[regex(r"\d+\.\d*([eE][+-]?\d+)?", |f| FloatLit::parse(f))]
+    #[regex(r"\.\d+([eE][+-]?\d+)?"   , |f| FloatLit::parse(f))]
     FloatLit(FloatLit),
 
     /// String literal

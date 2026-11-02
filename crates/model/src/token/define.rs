@@ -1,5 +1,7 @@
 use std::fmt::{self, Write};
 
+use crate::token::lexer::Token;
+
 /// Implement Display trait
 macro_rules! impl_display {
     ($type:ty) => {
@@ -479,6 +481,21 @@ pub enum Literal {
     Str(StrLit),
 }
 
+impl Literal {
+    /// Check if the token can be converted into a literal
+    #[rustfmt::skip]
+    pub fn try_from_token(token: &Token) -> Option<Self> {
+        match token {
+            Token::BoolLit  (lit) => Some(Self::Bool  (*lit)),
+            Token::CharLit  (lit) => Some(Self::Char  (*lit)),
+            Token::IntLit   (lit) => Some(Self::Int   (*lit)),
+            Token::FloatLit (lit) => Some(Self::Float (*lit)),
+            Token::StrLit   (lit) => Some(Self::Str   (lit.clone())),
+            _ => None,
+        }
+    }
+}
+
 /// Boolean literal
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BoolLit(pub bool);
@@ -514,3 +531,23 @@ impl_display!(FloatLit);
 impl_display!(StrLit, r#""{}""#);
 impl_display!(Ident);
 impl_display!(Label, "'{}");
+
+/// Path to a variable, type or function
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Path(pub Box<[Ident]>);
+
+impl fmt::Display for Path {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0.is_empty() {
+            // A path cannot be empty
+            Err(fmt::Error)
+        } else {
+            // Display all path elements with "::" in between
+            write!(f, "{}", self.0[0])?;
+            for elem in self.0[1..].iter() {
+                write!(f, "::{}", elem)?;
+            }
+            Ok(())
+        }
+    }
+}
