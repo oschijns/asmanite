@@ -1,9 +1,6 @@
 use crate::token::{define::*, lexer::Token};
-use tokora::{
-    Emitter, InputRef, ParseContext, ParseInput,
-    lexer::LogosLexer,
-    parser::{PrattInfix, PrattLHS, PrattRHS, Precedenced, pratt},
-    token::PrattToken,
+use chumsky::{
+    Parser, error::Rich, extra, input::ValueInput, recursive::recursive, select, span::SimpleSpan,
 };
 
 /// Expression AST
@@ -59,4 +56,21 @@ pub struct FunctionCall {
 
     /// Call arguments
     pub args: Box<[Expr]>,
+}
+
+// TODO:
+// https://docs.rs/chumsky/latest/chumsky/guide/_07_tutorial/index.html
+
+/// Read tokens to produce an expression
+fn parser<'tok, 'src: 'tok, I>() -> impl Parser<'tok, I, Expr, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    recursive(|expr| {
+        let literal = select! {
+            Token::Lit(lit) => Expr::Lit(lit),
+        };
+
+        literal
+    })
 }

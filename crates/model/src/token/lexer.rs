@@ -1,6 +1,6 @@
 use crate::token::define::*;
 use core::hash::Hash;
-use tokora::logos::{self, Lexer, Logos};
+use logos::{Lexer, Logos};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct LexError;
@@ -13,7 +13,7 @@ impl From<()> for LexError {
 
 /// Tokens in the language
 #[repr(u16)]
-#[derive(Logos, Debug, Clone, strum::EnumDiscriminants)]
+#[derive(Logos, Debug, Clone, PartialEq, strum::EnumDiscriminants)]
 #[logos(crate = logos, skip r"[ \t\n\f]+", error = LexError)]
 #[strum_discriminants(name(TokenKind), derive(strum::Display, Hash))]
 pub enum Token {
@@ -206,32 +206,20 @@ pub enum Token {
     #[token("as")]
     As,
 
-    /// Boolean literal
-    #[token("false", |_| BoolLit(false))]
-    #[token("true" , |_| BoolLit(true ))]
-    BoolLit(BoolLit),
-
-    /// Character literal
-    #[regex(r"'[^']'"             , |c| CharLit::parse    (c))]
-    #[regex(r"'\\.'"              , |c| CharLit::parse_esc(c))]
-    #[regex(r"'\\x[0-9A-Fa-f]{2}'", |c| CharLit::parse_hex(c))]
-    CharLit(CharLit),
-
-    /// Integer literal
-    #[regex(r"\d[0-9_]*"                 , |i| IntLit::parse(i))]
-    #[regex(r"0b[01][01_]*"              , |i| IntLit::parse(i))]
-    #[regex(r"0o[0-7][0-7_]*"            , |i| IntLit::parse(i))]
-    #[regex(r"0x[0-9A-Fa-f][0-9A-Fa-f_]*", |i| IntLit::parse(i))]
-    IntLit(IntLit),
-
-    /// Floating point literal
-    #[regex(r"\d+\.\d*([eE][+-]?\d+)?", |f| FloatLit::parse(f))]
-    #[regex(r"\.\d+([eE][+-]?\d+)?"   , |f| FloatLit::parse(f))]
-    FloatLit(FloatLit),
-
-    /// String literal
-    #[regex(r#""([^"\\]|\\.)*""#, StrLit::parse)]
-    StrLit(StrLit),
+    /// Literal
+    #[token("false"                      , |_| Literal::Bool (BoolLit(false)))]
+    #[token("true"                       , |_| Literal::Bool (BoolLit(true )))]
+    #[regex(r"'[^']'"                    , |c| Literal::Char (CharLit ::parse    (c)))]
+    #[regex(r"'\\.'"                     , |c| Literal::Char (CharLit ::parse_esc(c)))]
+    #[regex(r"'\\x[0-9A-Fa-f]{2}'"       , |c| Literal::Char (CharLit ::parse_hex(c)))]
+    #[regex(r"\d[0-9_]*"                 , |i| Literal::Int  (IntLit  ::parse    (i)))]
+    #[regex(r"0b[01][01_]*"              , |i| Literal::Int  (IntLit  ::parse    (i)))]
+    #[regex(r"0o[0-7][0-7_]*"            , |i| Literal::Int  (IntLit  ::parse    (i)))]
+    #[regex(r"0x[0-9A-Fa-f][0-9A-Fa-f_]*", |i| Literal::Int  (IntLit  ::parse    (i)))]
+    #[regex(r"\d+\.\d*([eE][+-]?\d+)?"   , |f| Literal::Float(FloatLit::parse    (f)))]
+    #[regex(r"\.\d+([eE][+-]?\d+)?"      , |f| Literal::Float(FloatLit::parse    (f)))]
+    #[regex(r#""([^"\\]|\\.)*""#         , |s| Literal::Str  (StrLit  ::parse    (s)))]
+    Lit(Literal),
 
     /// Label
     #[regex(r"'[A-Za-z_]\w*", Label::parse)]
@@ -240,21 +228,6 @@ pub enum Token {
     /// Identifier
     #[regex(r"[A-Za-z_]\w*", Ident::parse)]
     Ident(Ident),
-}
-
-// Define how tokora pull tokens
-impl tokora::Token<'_> for Token {
-    type Kind = TokenKind;
-    type Error = LexError;
-
-    const SCAN_LOOKAHEAD: tokora::ScanLookahead = tokora::ScanLookahead::Unbounded;
-
-    fn kind(&self) -> TokenKind {
-        TokenKind::from(self)
-    }
-    fn is_trivia(&self) -> bool {
-        false
-    }
 }
 
 /// Parse single-line doc-comment `/// ...`

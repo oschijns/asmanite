@@ -1,7 +1,5 @@
 use std::fmt::{self, Write};
 
-use crate::token::lexer::Token;
-
 /// Implement Display trait
 macro_rules! impl_display {
     ($type:ty) => {
@@ -34,6 +32,21 @@ macro_rules! impl_display {
 /// Higher values mean the operator have a higher priority than others.
 pub type Precedence = i8;
 
+/// Define the associativity of the operation
+#[repr(u8)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum Associativity {
+    /// No associativity (parenthesis are required)
+    #[default]
+    None,
+
+    /// Left to right associativity
+    Left,
+
+    /// Right to left associativity
+    Right,
+}
+
 /// Define a primitive type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Primitive {
@@ -47,16 +60,16 @@ pub struct Primitive {
 impl Primitive {
     /// Define a primitive
     #[inline]
-    pub fn new(prim_type: PrimType, size: u8) -> Self {
+    pub const fn new(prim_type: PrimType, size: u8) -> Self {
         Self { prim_type, size }
     }
 
     /// Define a primitive with a size in bits
     #[inline]
-    pub fn new_bits(prim_type: PrimType, bitsize: u8) -> Self {
+    pub const fn new_bits(prim_type: PrimType, bitsize: u8) -> Self {
         Self {
             prim_type,
-            size: bitsize >> 8,
+            size: bitsize >> 3,
         }
     }
 }
@@ -101,13 +114,13 @@ pub struct Assign {
 impl Assign {
     /// Assignment
     #[inline]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { op: None }
     }
 
     /// New operator
     #[inline]
-    pub fn op(op_type: OpType) -> Self {
+    pub const fn op(op_type: OpType) -> Self {
         Self {
             op: Some(Operator::new(op_type)),
         }
@@ -115,10 +128,16 @@ impl Assign {
 
     /// New operator with carry
     #[inline]
-    pub fn op_carry(op_type: OpType) -> Self {
+    pub const fn op_carry(op_type: OpType) -> Self {
         Self {
             op: Some(Operator::carry(op_type)),
         }
+    }
+
+    /// Associativity of an assignement operation
+    #[inline]
+    pub const fn associativity(self) -> Associativity {
+        Associativity::Right
     }
 }
 
@@ -145,7 +164,7 @@ pub struct Operator {
 impl Operator {
     /// New operator
     #[inline]
-    pub fn new(op_type: OpType) -> Self {
+    pub const fn new(op_type: OpType) -> Self {
         Self {
             op_type,
             carry: false,
@@ -154,7 +173,7 @@ impl Operator {
 
     /// New operator with carry
     #[inline]
-    pub fn carry(op_type: OpType) -> Self {
+    pub const fn carry(op_type: OpType) -> Self {
         Self {
             op_type,
             carry: true,
@@ -324,7 +343,33 @@ impl OpType {
             _ => Precedence::MIN,
         }
     }
+
+    /// Provide the associativity of the operators.
+    #[rustfmt::skip]
+    pub const fn associativity_binary(self) -> Associativity {
+        if matches!(self,
+            Self::Eq   | // ==
+            Self::Diff | // !=
+            Self::Lt   | // <
+            Self::Gt   | // >
+            Self::LEq  | // <=
+            Self::GEq    // >=
+        ) {
+            Associativity::None
+        } else {
+            Associativity::Left
+        }
+    }
+
+    /// Provide the associativity of the operators.
+    #[inline]
+    pub const fn associativity_unary(self) -> Associativity {
+        Associativity::None
+    }
 }
+
+/// Precendence of expression enclosed in parenthesis
+pub const PREC_PAREN: Precedence = 11;
 
 /// Define a delimiter token '(', ')', '[', ']', '{', '}'
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -339,7 +384,7 @@ pub struct Delimiter {
 impl Delimiter {
     /// Create a new open delimiter
     #[inline]
-    pub fn open(delim_type: DelimType) -> Self {
+    pub const fn open(delim_type: DelimType) -> Self {
         Self {
             delim_type,
             is_close: false,
@@ -348,7 +393,7 @@ impl Delimiter {
 
     /// Create a new close delimiter
     #[inline]
-    pub fn close(delim_type: DelimType) -> Self {
+    pub const fn close(delim_type: DelimType) -> Self {
         Self {
             delim_type,
             is_close: true,
@@ -403,13 +448,13 @@ pub struct Range {
 impl Range {
     /// Exclusive range
     #[inline]
-    pub fn excl() -> Self {
+    pub const fn excl() -> Self {
         Self { inclusive: false }
     }
 
     /// Inclusive range
     #[inline]
-    pub fn incl() -> Self {
+    pub const fn incl() -> Self {
         Self { inclusive: true }
     }
 }
@@ -479,21 +524,6 @@ pub enum Literal {
 
     /// String
     Str(StrLit),
-}
-
-impl Literal {
-    /// Check if the token can be converted into a literal
-    #[rustfmt::skip]
-    pub fn try_from_token(token: &Token) -> Option<Self> {
-        match token {
-            Token::BoolLit  (lit) => Some(Self::Bool  (*lit)),
-            Token::CharLit  (lit) => Some(Self::Char  (*lit)),
-            Token::IntLit   (lit) => Some(Self::Int   (*lit)),
-            Token::FloatLit (lit) => Some(Self::Float (*lit)),
-            Token::StrLit   (lit) => Some(Self::Str   (lit.clone())),
-            _ => None,
-        }
-    }
 }
 
 /// Boolean literal
