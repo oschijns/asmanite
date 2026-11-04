@@ -1,4 +1,7 @@
-use std::fmt::{self, Write};
+use std::{
+    fmt::{self, Write},
+    ops,
+};
 
 /// Implement Display trait
 macro_rules! impl_display {
@@ -46,6 +49,8 @@ pub enum Associativity {
     /// Right to left associativity
     Right,
 }
+
+// MARK: PRIMITIVE
 
 /// Define a primitive type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,6 +109,8 @@ pub enum PrimType {
 }
 impl_display!(PrimType, str);
 
+// MARK: ASSIGN
+
 /// Assignment instruction
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Assign {
@@ -150,6 +157,8 @@ impl fmt::Display for Assign {
         f.write_char('=')
     }
 }
+
+// MARK: OPERATOR
 
 /// Operator with optional carry flag
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -368,6 +377,8 @@ impl OpType {
     }
 }
 
+// MARK: DELIMITER
+
 /// Precendence of expression enclosed in parenthesis
 pub const PREC_PAREN: Precedence = 11;
 
@@ -507,6 +518,8 @@ pub enum TypeDef {
 }
 impl_display!(TypeDef, str);
 
+// MARK: LITERAL
+
 /// Literal
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
@@ -529,42 +542,115 @@ pub enum Literal {
 /// Boolean literal
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BoolLit(pub bool);
+impl_display!(BoolLit);
 
 /// Character literal
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CharLit(pub char);
+impl_display!(CharLit, "'{}'");
 
 /// Integer literal
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IntLit(pub u128);
+impl_display!(IntLit);
 
 /// Floating point literal
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FloatLit(pub f64);
+impl_display!(FloatLit);
 
 /// String literal
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StrLit(pub Box<str>);
-
-/// Identifier for register, variable, function, type
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Ident(pub Box<str>);
+impl_display!(StrLit, r#""{}""#);
 
 /// Label identifier
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Label(pub Box<str>);
-
-impl_display!(BoolLit);
-impl_display!(CharLit, "'{}'");
-impl_display!(IntLit);
-impl_display!(FloatLit);
-impl_display!(StrLit, r#""{}""#);
-impl_display!(Ident);
 impl_display!(Label, "'{}");
 
+// MARK: IDENTIFIER
+
+/// Identifier for register, variable, function, type
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Ident(pub Box<str>);
+impl_display!(Ident);
+
+impl Ident {
+    /// Instantiate a new identifier given its name
+    #[inline]
+    pub fn new(ident: &str) -> Self {
+        Self(ident.to_owned().into_boxed_str())
+    }
+}
+
+// MARK: PATH
+
 /// Path to a variable, type or function
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Path(pub Box<[Ident]>);
+
+impl Path {
+    /// Create a path instance from a slice of strings
+    pub fn new(elements: &[&str]) -> Self {
+        Self(elements.iter().map(|e| Ident::new(e)).collect::<Box<[_]>>())
+    }
+
+    /// Get the path as a slice
+    #[inline]
+    pub fn as_slice(&self) -> &[Ident] {
+        &self.0
+    }
+
+    /// Construct a new pat hfrom to slices of identifiers
+    pub(crate) fn from_slices(path_a: &[Ident], path_b: &[Ident]) -> Self {
+        let mut buffer = Vec::with_capacity(path_a.len() + path_b.len());
+        for e in path_a.iter() {
+            buffer.push(e.clone());
+        }
+        for e in path_b {
+            buffer.push(e.clone());
+        }
+        Self(buffer.into_boxed_slice())
+    }
+}
+
+impl ops::Index<usize> for Path {
+    type Output = Ident;
+
+    /// Get an identifier in this path
+    #[inline]
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
+    }
+}
+
+impl ops::Index<ops::Range<usize>> for Path {
+    type Output = [Ident];
+
+    /// Get a sub-slice over this path
+    #[inline]
+    fn index(&self, index: ops::Range<usize>) -> &Self::Output {
+        &self.0[index]
+    }
+}
+
+impl ops::Add for Path {
+    type Output = Path;
+
+    /// Concatenate two paths into one
+    #[inline]
+    fn add(self, rhs: Self) -> Self::Output {
+        let mut buffer = Vec::with_capacity(self.0.len() + rhs.0.len());
+        for e in self.0 {
+            buffer.push(e);
+        }
+        for e in rhs.0 {
+            buffer.push(e);
+        }
+        Self(buffer.into_boxed_slice())
+    }
+}
 
 impl fmt::Display for Path {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -60,6 +60,7 @@ pub struct FunctionCall {
 
 // TODO:
 // https://docs.rs/chumsky/latest/chumsky/guide/_07_tutorial/index.html
+// https://codeberg.org/zesterer/chumsky/src/branch/main/examples/logos.rs
 
 /// Read tokens to produce an expression
 fn parser<'tok, 'src: 'tok, I>() -> impl Parser<'tok, I, Expr, extra::Err<Rich<'tok, Token>>>
