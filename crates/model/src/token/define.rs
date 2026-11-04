@@ -3,6 +3,8 @@ use std::{
     ops,
 };
 
+use chumsky::pratt;
+
 /// Implement Display trait
 macro_rules! impl_display {
     ($type:ty) => {
@@ -33,7 +35,7 @@ macro_rules! impl_display {
 
 /// Define the precedence of an operator.
 /// Higher values mean the operator have a higher priority than others.
-pub type Precedence = i8;
+pub type Precedence = u16;
 
 /// Define the associativity of the operation
 #[repr(u8)]
@@ -50,7 +52,37 @@ pub enum Associativity {
     Right,
 }
 
+impl Associativity {
+    #[rustfmt::skip]
+    pub fn to_chumsky(self, precedence: Precedence) -> pratt::Associativity {
+        match self {
+            Self::None  => pratt::none (precedence),
+            Self::Left  => pratt::left (precedence),
+            Self::Right => pratt::right(precedence),
+        }
+    }
+}
+
 // MARK: PRIMITIVE
+
+#[rustfmt::skip]
+pub mod primitive {
+    use super::{Primitive, PrimType};
+
+    pub const U8 : Primitive = Primitive::new_bits(PrimType::UInt ,  8);
+    pub const U16: Primitive = Primitive::new_bits(PrimType::UInt , 16);
+    pub const U24: Primitive = Primitive::new_bits(PrimType::UInt , 24);
+    pub const U32: Primitive = Primitive::new_bits(PrimType::UInt , 32);
+    pub const U64: Primitive = Primitive::new_bits(PrimType::UInt , 64);
+    pub const I8 : Primitive = Primitive::new_bits(PrimType::Int  ,  8);
+    pub const I16: Primitive = Primitive::new_bits(PrimType::Int  , 16);
+    pub const I24: Primitive = Primitive::new_bits(PrimType::Int  , 24);
+    pub const I32: Primitive = Primitive::new_bits(PrimType::Int  , 32);
+    pub const I64: Primitive = Primitive::new_bits(PrimType::Int  , 64);
+    pub const F16: Primitive = Primitive::new_bits(PrimType::Float, 16);
+    pub const F32: Primitive = Primitive::new_bits(PrimType::Float, 32);
+    pub const F64: Primitive = Primitive::new_bits(PrimType::Float, 64);
+}
 
 /// Define a primitive type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,6 +143,34 @@ impl_display!(PrimType, str);
 
 // MARK: ASSIGN
 
+#[rustfmt::skip]
+pub mod assign {
+    use super::{Assign, OpType};
+
+    pub const AND    : Assign = Assign::op      (OpType::And   );
+    pub const OR     : Assign = Assign::op      (OpType::Or    );
+    pub const BIT_AND: Assign = Assign::op      (OpType::BitAnd);
+    pub const BIT_OR : Assign = Assign::op      (OpType::BitOr );
+    pub const BIT_XOR: Assign = Assign::op      (OpType::BitXor);
+    pub const SH_L   : Assign = Assign::op      (OpType::ShL   );
+    pub const SH_RA  : Assign = Assign::op      (OpType::ShRA  );
+    pub const SH_RL  : Assign = Assign::op      (OpType::ShRL  );
+    pub const ROT_L  : Assign = Assign::op      (OpType::RotL  );
+    pub const ROT_R  : Assign = Assign::op      (OpType::RotR  );
+    pub const ROT_L_C: Assign = Assign::op_carry(OpType::RotL  );
+    pub const ROT_R_C: Assign = Assign::op_carry(OpType::RotR  );
+    pub const ADD    : Assign = Assign::op      (OpType::Add   );
+    pub const SUB    : Assign = Assign::op      (OpType::Sub   );
+    pub const MUL    : Assign = Assign::op      (OpType::Mul   );
+    pub const DIV    : Assign = Assign::op      (OpType::Div   );
+    pub const REM    : Assign = Assign::op      (OpType::Rem   );
+    pub const ADD_C  : Assign = Assign::op_carry(OpType::Add   );
+    pub const SUB_C  : Assign = Assign::op_carry(OpType::Sub   );
+    pub const MUL_C  : Assign = Assign::op_carry(OpType::Mul   );
+    pub const DIV_C  : Assign = Assign::op_carry(OpType::Div   );
+    pub const REM_C  : Assign = Assign::op_carry(OpType::Rem   );
+}
+
 /// Assignment instruction
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Assign {
@@ -160,6 +220,44 @@ impl fmt::Display for Assign {
 
 // MARK: OPERATOR
 
+#[rustfmt::skip]
+pub mod operator {
+    use super::{Operator, OpType};
+
+    pub const EQ     : Operator = Operator::new  (OpType::Eq    );
+    pub const DIFF   : Operator = Operator::new  (OpType::Diff  );
+    pub const LT     : Operator = Operator::new  (OpType::Lt    );
+    pub const GT     : Operator = Operator::new  (OpType::Gt    );
+    pub const L_EQ   : Operator = Operator::new  (OpType::LEq   );
+    pub const G_EQ   : Operator = Operator::new  (OpType::GEq   );
+    pub const NOT    : Operator = Operator::new  (OpType::Not   );
+    pub const AND    : Operator = Operator::new  (OpType::And   );
+    pub const OR     : Operator = Operator::new  (OpType::Or    );
+    pub const BIT_INV: Operator = Operator::new  (OpType::BitInv);
+    pub const BIT_AND: Operator = Operator::new  (OpType::BitAnd);
+    pub const BIT_OR : Operator = Operator::new  (OpType::BitOr );
+    pub const BIT_XOR: Operator = Operator::new  (OpType::BitXor);
+    pub const SH_L   : Operator = Operator::new  (OpType::ShL   );
+    pub const SH_RA  : Operator = Operator::new  (OpType::ShRA  );
+    pub const SH_RL  : Operator = Operator::new  (OpType::ShRL  );
+    pub const ROT_L  : Operator = Operator::new  (OpType::RotL  );
+    pub const ROT_R  : Operator = Operator::new  (OpType::RotR  );
+    pub const ROT_L_C: Operator = Operator::carry(OpType::RotL  );
+    pub const ROT_R_C: Operator = Operator::carry(OpType::RotR  );
+    pub const INC    : Operator = Operator::new  (OpType::Inc   );
+    pub const DEC    : Operator = Operator::new  (OpType::Dec   );
+    pub const ADD    : Operator = Operator::new  (OpType::Add   );
+    pub const SUB    : Operator = Operator::new  (OpType::Sub   );
+    pub const MUL    : Operator = Operator::new  (OpType::Mul   );
+    pub const DIV    : Operator = Operator::new  (OpType::Div   );
+    pub const REM    : Operator = Operator::new  (OpType::Rem   );
+    pub const ADD_C  : Operator = Operator::carry(OpType::Add   );
+    pub const SUB_C  : Operator = Operator::carry(OpType::Sub   );
+    pub const MUL_C  : Operator = Operator::carry(OpType::Mul   );
+    pub const DIV_C  : Operator = Operator::carry(OpType::Div   );
+    pub const REM_C  : Operator = Operator::carry(OpType::Rem   );
+}
+
 /// Operator with optional carry flag
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Operator {
@@ -203,7 +301,7 @@ impl fmt::Display for Operator {
 
 /// Type of operator
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::EnumIter, strum::IntoStaticStr)]
 pub enum OpType {
     /// Equality '=='
     #[strum(serialize = "==")]
@@ -308,6 +406,49 @@ pub enum OpType {
 impl_display!(OpType, str);
 
 impl OpType {
+    /// Can the operator by used as a binary operator?
+    #[rustfmt::skip]
+    pub const fn is_binary(self) -> bool {
+        matches!(self,
+            Self::Eq     | // ==
+            Self::Diff   | // !=
+            Self::Lt     | // <
+            Self::Gt     | // >
+            Self::LEq    | // <=
+            Self::GEq    | // >=
+            Self::And    | // &&
+            Self::Or     | // ||
+            Self::BitAnd | // &
+            Self::BitOr  | // |
+            Self::BitXor | // ^
+            Self::ShL    | // <<
+            Self::ShRA   | // >>
+            Self::ShRL   | // >>>
+            Self::RotL   | // <+
+            Self::RotR   | // +>
+            Self::Add    | // +
+            Self::Sub    | // -
+            Self::Mul    | // *
+            Self::Div    | // /
+            Self::Rem      // %
+        )
+    }
+
+    /// Can the operator by used as a unary operator?
+    #[rustfmt::skip]
+    pub const fn is_unary(self) -> bool {
+        matches!(self,
+            OpType::Not    | // !
+            OpType::BitInv | // ~
+            OpType::BitAnd | // &
+            OpType::Inc    | // ++
+            OpType::Dec    | // --
+            OpType::Add    | // +
+            OpType::Sub    | // -
+            OpType::Mul      // *
+        )
+    }
+
     /// Provide the precedence of the binary operators.
     #[rustfmt::skip]
     pub const fn precedence_binary(self) -> Precedence {
@@ -378,6 +519,18 @@ impl OpType {
 }
 
 // MARK: DELIMITER
+
+#[rustfmt::skip]
+pub mod delimiter {
+    use super::{Delimiter, DelimType};
+
+    pub const PAREN_OPEN   : Delimiter = Delimiter::open (DelimType::Paren  );
+    pub const PAREN_CLOSE  : Delimiter = Delimiter::close(DelimType::Paren  );
+    pub const BRACKET_OPEN : Delimiter = Delimiter::open (DelimType::Bracket);
+    pub const BRACKET_CLOSE: Delimiter = Delimiter::close(DelimType::Bracket);
+    pub const BRACE_OPEN   : Delimiter = Delimiter::open (DelimType::Brace  );
+    pub const BRACE_CLOSE  : Delimiter = Delimiter::close(DelimType::Brace  );
+}
 
 /// Precendence of expression enclosed in parenthesis
 pub const PREC_PAREN: Precedence = 11;

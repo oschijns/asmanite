@@ -1,7 +1,4 @@
-use crate::token::{define::*, lexer::Token};
-use chumsky::{
-    Parser, error::Rich, extra, input::ValueInput, recursive::recursive, select, span::SimpleSpan,
-};
+use crate::token::define::*;
 
 /// Expression AST
 #[derive(Debug, Clone, PartialEq)]
@@ -35,6 +32,16 @@ pub struct UnaryOp {
     pub expr: Box<Expr>,
 }
 
+impl UnaryOp {
+    #[inline]
+    pub fn new(op: Operator, expr: Expr) -> Self {
+        Self {
+            op,
+            expr: Box::new(expr),
+        }
+    }
+}
+
 /// Binary operation
 #[derive(Debug, Clone, PartialEq)]
 pub struct BinaryOp {
@@ -48,6 +55,17 @@ pub struct BinaryOp {
     pub rhs: Box<Expr>,
 }
 
+impl BinaryOp {
+    #[inline]
+    pub fn new(op: Operator, lhs: Expr, rhs: Expr) -> Self {
+        Self {
+            op,
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        }
+    }
+}
+
 /// Function call
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionCall {
@@ -58,20 +76,12 @@ pub struct FunctionCall {
     pub args: Box<[Expr]>,
 }
 
-// TODO:
-// https://docs.rs/chumsky/latest/chumsky/guide/_07_tutorial/index.html
-// https://codeberg.org/zesterer/chumsky/src/branch/main/examples/logos.rs
-
-/// Read tokens to produce an expression
-fn parser<'tok, 'src: 'tok, I>() -> impl Parser<'tok, I, Expr, extra::Err<Rich<'tok, Token>>>
-where
-    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-{
-    recursive(|expr| {
-        let literal = select! {
-            Token::Lit(lit) => Expr::Lit(lit),
-        };
-
-        literal
-    })
+impl FunctionCall {
+    #[inline]
+    pub fn new(callee: Path, args: Vec<Expr>) -> Self {
+        Self {
+            callee,
+            args: args.into_boxed_slice(),
+        }
+    }
 }
