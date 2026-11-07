@@ -1,4 +1,4 @@
-use crate::lexer::{define::Ident, token::Token};
+use crate::lexer::{atom::Ident, token::Token};
 use chumsky::{
     IterParser, Parser, error::Rich, extra, input::ValueInput, prelude::just, select,
     span::SimpleSpan,

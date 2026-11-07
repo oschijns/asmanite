@@ -1,4 +1,4 @@
-use crate::lexer::define::{assign, delimiter::*, operator::*, primitive::*, *};
+use crate::lexer::atom::{assign, delimiter::*, operator::*, primitive::*, *};
 use core::hash::Hash;
 use logos::{Lexer, Logos};
 

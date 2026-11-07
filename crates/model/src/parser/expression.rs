@@ -1,5 +1,5 @@
 use crate::{
-    lexer::{define::*, token::Token},
+    lexer::{atom::*, token::Token},
     parser::path::{Path, parser_path},
 };
 use chumsky::{

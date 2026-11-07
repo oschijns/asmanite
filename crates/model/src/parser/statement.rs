@@ -1,4 +1,4 @@
-use crate::{lexer::define::*, parser::expression::Expr};
+use crate::{lexer::atom::*, parser::expression::Expr};
 
 // MARK: AST
 
