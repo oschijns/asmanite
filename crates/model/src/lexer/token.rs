@@ -128,16 +128,15 @@ pub enum Token {
     #[token("..=", |_| Range::incl())]
     Range(Range),
 
-    /// Address Operator
-    #[token("@")]
-    Address,
-
+    // Address Operator
+    //#[token("@")]
+    //Address,
     /// Declare a variable/constant
-    #[token("var"   , |_| VarDecl::Var   )]
-    #[token("let"   , |_| VarDecl::Let   )]
-    #[token("static", |_| VarDecl::Static)]
-    #[token("const" , |_| VarDecl::Const )]
-    VarDecl(VarDecl),
+    #[token("var"   , |_| VarDeclType::Var   )]
+    #[token("let"   , |_| VarDeclType::Let   )]
+    #[token("static", |_| VarDeclType::Static)]
+    #[token("const" , |_| VarDeclType::Const )]
+    VarDecl(VarDeclType),
 
     /// Declare a variable/constant
     #[token("struct", |_| TypeDef::Struct)]
@@ -169,7 +168,7 @@ pub enum Token {
     #[token("for")]
     For,
 
-    /// In
+    /// In (for-loop and bank used)
     #[token("in")]
     In,
 
@@ -204,6 +203,10 @@ pub enum Token {
     /// Cast type
     #[token("as")]
     As,
+
+    /// Specify fixed address location
+    #[token("at")]
+    At,
 
     /// Literal
     #[token("false"                      , |_| Literal::Bool (BoolLit(false)))]

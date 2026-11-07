@@ -1,12 +1,12 @@
-use std::collections::HashMap;
-
 use crate::lexer::{define::*, token::Token};
-use crate::parser::ast::{AssignOp, BinaryOp, Expr, FunctionCall, UnaryOp};
+use crate::parser::ast::{AssignOp, BinaryOp, Expr, FunctionCall, TypeCast, UnaryOp};
+use crate::parser::path::parser_path;
 use chumsky::{
     IterParser, Parser, error::Rich, extra, input::ValueInput, pratt,
     pratt::Operator as PrattOperator, prelude::just, recursive::recursive, select,
     span::SimpleSpan,
 };
+use std::collections::HashMap;
 use strum::IntoEnumIterator;
 
 /// Open parenthesis token
@@ -14,22 +14,6 @@ const PAREN_OPEN: Token = Token::Delimiter(delimiter::PAREN_OPEN);
 
 /// Close parenthesis token
 const PAREN_CLOSE: Token = Token::Delimiter(delimiter::PAREN_CLOSE);
-
-/// Parse a sequence of identifiers and path separator into a path
-pub fn parser_path<'tok, 'src: 'tok, I>()
--> impl Parser<'tok, I, Path, extra::Err<Rich<'tok, Token>>>
-where
-    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-{
-    // collect a sequence of identifiers separated by `::`
-    select! {
-        Token::Ident(ident) => ident,
-    }
-    .separated_by(just(Token::PathSep))
-    .at_least(1)
-    .collect::<Box<[_]>>()
-    .map(Path)
-}
 
 /// Parse a function call
 pub fn parser_function_call<'tok, 'src: 'tok, I>()
@@ -101,6 +85,21 @@ where
     )
 }
 
+/// Parse a type cast operation
+pub fn parse_type_cast<'tok, 'src: 'tok, I>()
+-> impl PrattOperator<'tok, I, Expr, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    let cast = just(Token::As).ignore_then(select! {
+        Token::Primitive(primitive) => primitive,
+    });
+
+    pratt::postfix(PREC_TYPE_CAST, cast, |expr, prim, _| {
+        Expr::Cast(TypeCast::new(expr, prim))
+    })
+}
+
 /// Read tokens to produce an expression
 pub fn parser_expr<'tok, 'src: 'tok, I>()
 -> impl Parser<'tok, I, Expr, extra::Err<Rich<'tok, Token>>>
@@ -141,7 +140,7 @@ where
         let bitmasks = gen_op_bitmasks();
 
         // Allocate storage for all the operator types
-        let mut operators = Vec::with_capacity(bitmasks.len() + 2);
+        let mut operators = Vec::with_capacity(bitmasks.len() + 3);
 
         // Add the binary operators, then the unary ones and the assignments
         for (&(assoc, prec), &mask) in bitmasks.iter() {
@@ -149,6 +148,7 @@ where
         }
         operators.push(parse_unary_op().boxed());
         operators.push(parse_assign_op().boxed());
+        operators.push(parse_type_cast().boxed());
 
         // Set the possible operators encountered between atoms
         atom.pratt(operators)
@@ -174,6 +174,8 @@ fn gen_op_bitmasks() -> HashMap<(Associativity, Precedence), u64> {
 
 #[cfg(test)]
 mod tests {
+    use crate::parser::path::Path;
+
     use super::*;
     use chumsky::input::{Input, Stream};
     use logos::Logos;
@@ -230,6 +232,21 @@ mod tests {
                     rhs: Box::new(Expr::Var(Path::new(&["c"]))),
                 })),
             })
+        );
+    }
+
+    #[test]
+    fn parses_type_cast_of_grouped_expression() {
+        assert_eq!(
+            parse_expr("(a + b) as u8"),
+            Expr::Cast(TypeCast::new(
+                Expr::Group(Box::new(Expr::Binary(BinaryOp::new(
+                    Operator::new(OpType::Add),
+                    Expr::Var(Path::new(&["a"])),
+                    Expr::Var(Path::new(&["b"])),
+                )))),
+                primitive::U8,
+            ))
         );
     }
 
