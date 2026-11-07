@@ -1,4 +1,4 @@
-use crate::token::define::{Ident, Path};
+use crate::lexer::define::{Ident, Path};
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
 

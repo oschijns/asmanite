@@ -1,4 +1,4 @@
-use crate::token::define::*;
+use crate::lexer::define::*;
 
 /// Expression AST
 #[derive(Debug, Clone, PartialEq)]

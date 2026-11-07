@@ -1,8 +1,5 @@
-use crate::token::{
-    define::*,
-    expression::{BinaryOp, Expr, FunctionCall, UnaryOp},
-    lexer::Token,
-};
+use crate::lexer::{define::*, token::Token};
+use crate::parser::ast::{BinaryOp, Expr, FunctionCall, UnaryOp};
 use chumsky::{
     IterParser, Parser, error::Rich, extra, input::ValueInput, pratt,
     pratt::Operator as PrattOperator, prelude::just, recursive::recursive, select,
