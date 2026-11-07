@@ -1,5 +1,7 @@
+use std::collections::HashMap;
+
 use crate::lexer::{define::*, token::Token};
-use crate::parser::ast::{BinaryOp, Expr, FunctionCall, UnaryOp};
+use crate::parser::ast::{AssignOp, BinaryOp, Expr, FunctionCall, UnaryOp};
 use chumsky::{
     IterParser, Parser, error::Rich, extra, input::ValueInput, pratt,
     pratt::Operator as PrattOperator, prelude::just, recursive::recursive, select,
@@ -55,37 +57,56 @@ where
 }
 
 /// Parse a unary operator
-pub fn parse_unary_op<'tok, 'src: 'tok, I>(
-    op_type: OpType,
-) -> impl PrattOperator<'tok, I, Expr, extra::Err<Rich<'tok, Token>>>
+pub fn parse_unary_op<'tok, 'src: 'tok, I>()
+-> impl PrattOperator<'tok, I, Expr, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
     let operator = select! {
-        Token::Operator(operator) if operator.op_type == op_type => operator,
+        Token::Operator(operator) if operator.op_type.is_unary() => operator,
     };
-    pratt::prefix(op_type.precedence_unary(), operator, |op, operand, _| {
+
+    // All unary operators share the same precedence level (for now...)
+    pratt::prefix(PREC_UNARY, operator, |op, operand, _| {
         Expr::Unary(UnaryOp::new(op, operand))
     })
 }
 
 /// Parse a binary operator
 pub fn parse_binary_op<'tok, 'src: 'tok, I>(
-    op_type: OpType,
+    assoc: Associativity,
+    prec: Precedence,
+    bitmask: u64,
 ) -> impl PrattOperator<'tok, I, Expr, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
     let operator = select! {
-        Token::Operator(operator) if operator.op_type == op_type => operator,
+        Token::Operator(operator) if (operator.op_type.bitmask() & bitmask) != 0 => operator,
     };
-    let associativity = op_type
-        .associativity_binary()
-        .to_chumsky(op_type.precedence_binary());
 
-    pratt::infix(associativity, operator, |lhs, op, rhs, _| {
+    // Binary operators have various associativity and precedence
+    pratt::infix(assoc.to_chumsky(prec), operator, |lhs, op, rhs, _| {
         Expr::Binary(BinaryOp::new(op, lhs, rhs))
     })
+}
+
+/// Parse a assign operation
+pub fn parse_assign_op<'tok, 'src: 'tok, I>()
+-> impl PrattOperator<'tok, I, Expr, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    let assign = select! {
+        Token::Assign(assign) => assign,
+    };
+
+    // All assign operations have the same precedence level and are associative from right to left
+    pratt::infix(
+        ASSOC_ASSIGN.to_chumsky(PREC_ASSIGN),
+        assign,
+        |lhs, assign, rhs, _| Expr::Assign(AssignOp::new(assign, lhs, rhs)),
+    )
 }
 
 /// Read tokens to produce an expression
@@ -120,23 +141,43 @@ where
             .delimited_by(just(PAREN_OPEN), just(PAREN_CLOSE))
             .map(|inner| Expr::Group(Box::new(inner)));
 
+        // node tokens to be associated with operators
         let atom = literal.or(path).or(grouped);
 
         // Collect parsers for operators
-        let mut operators = Vec::with_capacity(64);
-        for op_type in OpType::iter() {
-            // Can the operator be used as a binary operator
-            if op_type.is_binary() {
-                operators.push(parse_binary_op(op_type).boxed());
-            }
+        // Binary operators have various level of precedences
+        let bitmasks = gen_op_bitmasks();
 
-            // Can the operator be used as a unary operator
-            if op_type.is_unary() {
-                operators.push(parse_unary_op(op_type).boxed());
-            }
+        // Allocate storage for all the operator types
+        let mut operators = Vec::with_capacity(bitmasks.len() + 2);
+
+        // Add the binary operators, then the unary ones and the assignments
+        for (&(assoc, prec), &mask) in bitmasks.iter() {
+            operators.push(parse_binary_op(assoc, prec, mask).boxed());
         }
+        operators.push(parse_unary_op().boxed());
+        operators.push(parse_assign_op().boxed());
+
+        // Set the possible operators encountered between atoms
         atom.pratt(operators)
     })
+}
+
+/// Iterate over the list of operators. On binary operators,
+/// identify those that share the same associativity and the same precedence.
+/// Construct a bitmask for each set of common operators.
+fn gen_op_bitmasks() -> HashMap<(Associativity, Precedence), u64> {
+    let mut masks = HashMap::with_capacity(24);
+    for op_type in OpType::iter() {
+        // Can the operator be used as a binary operator
+        if op_type.is_binary() {
+            let assoc = op_type.associativity_binary();
+            let prec = op_type.precedence_binary();
+            let mask = masks.entry((assoc, prec)).or_default();
+            *mask |= op_type.bitmask();
+        }
+    }
+    masks
 }
 
 #[cfg(test)]

@@ -39,7 +39,7 @@ pub type Precedence = u16;
 
 /// Define the associativity of the operation
 #[repr(u8)]
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Associativity {
     /// No associativity (parenthesis are required)
     #[default]
@@ -178,6 +178,12 @@ pub struct Assign {
     pub op: Option<Operator>,
 }
 
+/// Associativity of the assignement expression is always right to left
+pub const ASSOC_ASSIGN: Associativity = Associativity::Right;
+
+/// Precendence of assignement expression is always the same
+pub const PREC_ASSIGN: Precedence = 10;
+
 impl Assign {
     /// Assignment
     #[inline]
@@ -199,12 +205,6 @@ impl Assign {
         Self {
             op: Some(Operator::carry(op_type)),
         }
-    }
-
-    /// Associativity of an assignement operation
-    #[inline]
-    pub const fn associativity(self) -> Associativity {
-        Associativity::Right
     }
 }
 
@@ -405,6 +405,9 @@ pub enum OpType {
 }
 impl_display!(OpType, str);
 
+/// Precendence of unary operators
+pub const PREC_UNARY: Precedence = 40;
+
 impl OpType {
     /// Can the operator by used as a binary operator?
     #[rustfmt::skip]
@@ -455,25 +458,25 @@ impl OpType {
         match self {
             Self::Mul    |      // *
             Self::Div    |      // /
-            Self::Rem    =>  9, // %
+            Self::Rem    => 29, // %
             Self::Add    |      // +
-            Self::Sub    =>  8, // -
+            Self::Sub    => 28, // -
             Self::ShL    |      // <<
             Self::ShRA   |      // >>
             Self::ShRL   |      // >>>
             Self::RotL   |      // <+
-            Self::RotR   =>  7, // +>
-            Self::BitAnd =>  6, // &
-            Self::BitXor =>  5, // ^
-            Self::BitOr  =>  4, // |
+            Self::RotR   => 27, // +>
+            Self::BitAnd => 26, // &
+            Self::BitXor => 25, // ^
+            Self::BitOr  => 24, // |
             Self::Eq     |      // ==
             Self::Diff   |      // !=
             Self::Lt     |      // <
             Self::Gt     |      // >
             Self::LEq    |      // <=
-            Self::GEq    =>  3, // >=
-            Self::And    =>  2, // &&
-            Self::Or     =>  1, // ||
+            Self::GEq    => 23, // >=
+            Self::And    => 22, // &&
+            Self::Or     => 21, // ||
             _ => Precedence::MIN,
         }
     }
@@ -482,14 +485,15 @@ impl OpType {
     #[rustfmt::skip]
     pub const fn precedence_unary(self) -> Precedence {
         match self {
-            Self::Not    |      // !
-            Self::BitInv |      // ~
-            Self::Inc    |      // ++
-            Self::Dec    |      // --
-            Self::Add    |      // +
-            Self::Sub    |      // -
-            Self::Mul    |      // *
-            Self::BitAnd => 10, // &
+            Self::Not    | // !
+            Self::BitInv | // ~
+            Self::Inc    | // ++
+            Self::Dec    | // --
+            Self::Add    | // +
+            Self::Sub    | // -
+            Self::Mul    | // *
+            Self::BitAnd   // &
+              => PREC_UNARY,
             _ => Precedence::MIN,
         }
     }
@@ -516,6 +520,13 @@ impl OpType {
     pub const fn associativity_unary(self) -> Associativity {
         Associativity::None
     }
+
+    /// Get a bitmask for the given operator, this allows for grouping
+    /// operators with similar properties (associativity and precedence).
+    #[inline]
+    pub const fn bitmask(self) -> u64 {
+        1u64 << (self as u64)
+    }
 }
 
 // MARK: DELIMITER
@@ -533,7 +544,7 @@ pub mod delimiter {
 }
 
 /// Precendence of expression enclosed in parenthesis
-pub const PREC_PAREN: Precedence = 11;
+pub const PREC_PAREN: Precedence = 100;
 
 /// Define a delimiter token '(', ')', '[', ']', '{', '}'
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

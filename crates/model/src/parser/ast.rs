@@ -15,6 +15,9 @@ pub enum Expr {
     /// Binary operation
     Binary(BinaryOp),
 
+    /// Assign operation
+    Assign(AssignOp),
+
     /// Function call
     Call(FunctionCall),
 
@@ -60,6 +63,30 @@ impl BinaryOp {
     pub fn new(op: Operator, lhs: Expr, rhs: Expr) -> Self {
         Self {
             op,
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        }
+    }
+}
+
+/// Assign operation
+#[derive(Debug, Clone, PartialEq)]
+pub struct AssignOp {
+    /// Operator between the operands
+    pub assign: Assign,
+
+    /// Left operand
+    pub lhs: Box<Expr>,
+
+    /// Right operand
+    pub rhs: Box<Expr>,
+}
+
+impl AssignOp {
+    #[inline]
+    pub fn new(assign: Assign, lhs: Expr, rhs: Expr) -> Self {
+        Self {
+            assign,
             lhs: Box::new(lhs),
             rhs: Box::new(rhs),
         }
