@@ -9,14 +9,6 @@ use chumsky::{
 };
 use strum::IntoEnumIterator;
 
-/*
- * TODO:
- * https://codeberg.org/zesterer/chumsky/src/branch/main/examples/logos.rs
- *
- * identify scopes/groups using pair of delimiters (), [], {}
- *
- */
-
 /// Open parenthesis token
 const PAREN_OPEN: Token = Token::Delimiter(delimiter::PAREN_OPEN);
 
@@ -277,6 +269,77 @@ mod tests {
         let input =
             Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
         assert!(parser_expr().parse(input).into_result().is_err());
+    }
+
+    #[test]
+    fn parses_chained_assignments_right_associatively() {
+        let a = Expr::Var(Path::new(&["a"]));
+        let b = Expr::Var(Path::new(&["b"]));
+        let c = Expr::Var(Path::new(&["c"]));
+
+        assert_eq!(
+            parse_expr("a = b = c"),
+            Expr::Assign(AssignOp::new(
+                Assign::new(),
+                a.clone(),
+                Expr::Assign(AssignOp::new(Assign::new(), b.clone(), c.clone())),
+            ))
+        );
+
+        assert_eq!(
+            parse_expr("a = b += c"),
+            Expr::Assign(AssignOp::new(
+                Assign::new(),
+                a,
+                Expr::Assign(AssignOp::new(assign::ADD, b, c)),
+            ))
+        );
+    }
+
+    #[test]
+    fn parses_binary_operators_with_carry_flags() {
+        for (source, op_type) in [
+            ("a +' b", OpType::Add),
+            ("a -' b", OpType::Sub),
+            ("a *' b", OpType::Mul),
+            ("a /' b", OpType::Div),
+            ("a %' b", OpType::Rem),
+            ("a <+' b", OpType::RotL),
+            ("a +>' b", OpType::RotR),
+        ] {
+            assert_eq!(
+                parse_expr(source),
+                Expr::Binary(BinaryOp::new(
+                    Operator::carry(op_type),
+                    Expr::Var(Path::new(&["a"])),
+                    Expr::Var(Path::new(&["b"])),
+                )),
+                "failed to parse carry operator in {source}",
+            );
+        }
+    }
+
+    #[test]
+    fn parses_assignment_operators_with_carry_flags() {
+        for (source, op_type) in [
+            ("a +'= b", OpType::Add),
+            ("a -'= b", OpType::Sub),
+            ("a *'= b", OpType::Mul),
+            ("a /'= b", OpType::Div),
+            ("a %'= b", OpType::Rem),
+            ("a <+'= b", OpType::RotL),
+            ("a +>'= b", OpType::RotR),
+        ] {
+            assert_eq!(
+                parse_expr(source),
+                Expr::Assign(AssignOp::new(
+                    Assign::op_carry(op_type),
+                    Expr::Var(Path::new(&["a"])),
+                    Expr::Var(Path::new(&["b"])),
+                )),
+                "failed to parse carry assignment in {source}",
+            );
+        }
     }
 
     #[test]
