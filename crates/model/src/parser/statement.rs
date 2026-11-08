@@ -52,6 +52,9 @@ pub enum StmtInner {
 
     /// Loop block
     Loop(Loop),
+
+    /// Break or continue instruction
+    LoopCtrl(LoopCtrl),
 }
 
 /// Variable declaration.
@@ -314,6 +317,26 @@ pub enum ForLoopIterDecl {
     Register { register: Ident },
 }
 
+/// Loop control instruction
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoopCtrl {
+    /// Type of the instruction
+    pub ctrl_type: LoopCtrlType,
+
+    /// Label of the loop affected
+    pub label: Option<Label>,
+}
+
+/// Loop control types
+#[derive(Debug, Clone, PartialEq)]
+pub enum LoopCtrlType {
+    /// Break out of the current loop
+    Break,
+
+    /// Continue to the next iteration of the loop
+    Continue,
+}
+
 // MARK: Parsers
 
 /// Open brace token
@@ -339,14 +362,36 @@ where
         let switch_stmt = parser_switch(block).map(StmtInner::Switch).boxed();
         let var_decl = parser_var_decl().map(|s| StmtInner::Var(s)).boxed();
         let bank = parser_in_bank().map(StmtInner::Bank).boxed();
+        let loop_ctrl = parser_loop_ctrl().map(StmtInner::LoopCtrl).boxed();
 
-        let statement = bank.or(var_decl).or(if_else).or(loop_stmt).or(switch_stmt);
+        let statement = bank
+            .or(var_decl)
+            .or(if_else)
+            .or(loop_stmt)
+            .or(switch_stmt)
+            .or(loop_ctrl);
         select! { Token::Label(label) => label }
             .then_ignore(just(Token::Colon))
             .or_not()
             .then(statement)
             .map(|(label, inner)| Statement { label, inner })
     })
+}
+
+/// Parse a break or continue instruction, optionally targeting a loop label.
+pub fn parser_loop_ctrl<'tok, 'src: 'tok, I>()
+-> impl Parser<'tok, I, LoopCtrl, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    let ctrl_b = just(Token::Break).to(LoopCtrlType::Break);
+    let ctrl_c = just(Token::Continue).to(LoopCtrlType::Continue);
+
+    ctrl_b
+        .or(ctrl_c)
+        .then(select! { Token::Label(label) => label }.or_not())
+        .then_ignore(just(Token::Semicolon))
+        .map(|(ctrl_type, label)| LoopCtrl { ctrl_type, label })
 }
 
 /// Parse a variable, static, or constant declaration.
@@ -801,6 +846,31 @@ else                 { var third:  u8; }
         assert!(matches!(conditional.inner, StmtInner::If(_)));
 
         assert_eq!(parse_statement("loop { }").label, None);
+    }
+
+    #[test]
+    fn parses_loop_control_with_optional_target_label() {
+        for (source, ctrl_type, label) in [
+            ("break;", LoopCtrlType::Break, None),
+            (
+                "break 'label1;",
+                LoopCtrlType::Break,
+                Some(Label("label1".into())),
+            ),
+            ("continue;", LoopCtrlType::Continue, None),
+            (
+                "continue 'label2;",
+                LoopCtrlType::Continue,
+                Some(Label("label2".into())),
+            ),
+        ] {
+            let statement = parse_statement(source);
+            assert_eq!(statement.label, None);
+            assert_eq!(
+                statement.inner,
+                StmtInner::LoopCtrl(LoopCtrl { ctrl_type, label })
+            );
+        }
     }
 
     #[test]
