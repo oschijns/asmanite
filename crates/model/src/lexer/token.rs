@@ -192,13 +192,25 @@ pub enum Token {
     #[token("continue")]
     Continue,
 
-    /// Return a value
-    #[token("return")]
-    Return,
+    /// Fallthrough switch case
+    #[token("fallthrough")]
+    Fallthrough,
 
     /// Goto label
     #[token("goto")]
     Goto,
+
+    /// Defer operations when the scope is exited
+    #[token("defer")]
+    Defer,
+
+    /// Return a value
+    #[token("return")]
+    Return,
+
+    /// Include raw assembly
+    #[token("asm")]
+    Asm,
 
     /// Cast type
     #[token("as")]
