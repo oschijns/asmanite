@@ -12,7 +12,26 @@ use chumsky::{
 /// Statement AST
 /// Instruction that can appear in a block of code
 #[derive(Debug, Clone, PartialEq)]
-pub enum Statement {
+pub struct Statement {
+    /// Optional label on the statement
+    pub label: Option<Label>,
+
+    /// The actual statement / instruction
+    pub inner: StmtInner,
+}
+
+impl Statement {
+    /// Create a new statement
+    #[inline]
+    pub fn new(inner: StmtInner) -> Self {
+        Self { label: None, inner }
+    }
+}
+
+/// Statement AST
+/// Instruction that can appear in a block of code
+#[derive(Debug, Clone, PartialEq)]
+pub enum StmtInner {
     /// In-bank block for variable declaration
     Bank(InBank),
 
@@ -335,14 +354,19 @@ where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
     recursive(|statement| {
-        let block = parser_block(statement.clone()).boxed();
-        let if_else = parser_if_else(block.clone()).map(Statement::If).boxed();
-        let loop_stmt = parser_loop(block).map(Statement::Loop).boxed();
-        parser_var_decl()
-            .map(Statement::Var)
-            .boxed()
-            .or(if_else)
-            .or(loop_stmt)
+        let block = parser_block(statement).boxed();
+        let if_else = parser_if_else(block.clone())
+            .map(|s| StmtInner::If(s))
+            .boxed();
+        let loop_stmt = parser_loop(block).map(|s| StmtInner::Loop(s)).boxed();
+        let var_decl = parser_var_decl().map(|s| StmtInner::Var(s)).boxed();
+
+        let statement = var_decl.or(if_else).or(loop_stmt);
+        select! { Token::Label(label) => label }
+            .then_ignore(just(Token::Colon))
+            .or_not()
+            .then(statement)
+            .map(|(label, inner)| Statement { label, inner })
     })
 }
 
@@ -357,9 +381,7 @@ where
     // - in a given bank
     // - at a specific address
     let storage = just(Token::In)
-        .ignore_then(select! {
-            Token::Ident(ident) => VarStorage::In(ident),
-        })
+        .ignore_then(select! { Token::Ident(ident) => VarStorage::In(ident) })
         .or(just(Token::At)
             .ignore_then(parser_expr(false))
             .map(|expr| VarStorage::At(Box::new(expr))))
@@ -370,30 +392,24 @@ where
     // followed by its identifier and by its type.
     // Optionnaly, we may specify where the variable
     // is stored and a value at initialization.
-    select! {
-        Token::VarDecl(decl_type) => decl_type,
-    }
-    .then(select! {
-        Token::Ident(ident) => ident,
-    })
-    .then_ignore(just(Token::Colon))
-    .then(select! {
-        Token::Primitive(var_type) => var_type,
-    })
-    .then(storage)
-    .then(
-        just(Token::Assign(Assign::new()))
-            .ignore_then(parser_expr(true))
-            .or_not(),
-    )
-    .then_ignore(just(Token::Semicolon))
-    .map(|((((decl_type, ident), var_type), storage), assign_expr)| {
-        let mut var = VarDecl::new(decl_type, ident, var_type, storage);
-        if let Some(assign) = assign_expr {
-            var.with_assign(assign);
-        }
-        var
-    })
+    select! { Token::VarDecl(decl_type) => decl_type }
+        .then(select! { Token::Ident(ident) => ident })
+        .then_ignore(just(Token::Colon))
+        .then(select! { Token::Primitive(var_type) => var_type })
+        .then(storage)
+        .then(
+            just(Token::Assign(Assign::new()))
+                .ignore_then(parser_expr(true))
+                .or_not(),
+        )
+        .then_ignore(just(Token::Semicolon))
+        .map(|((((decl_type, ident), var_type), storage), assign_expr)| {
+            let mut var = VarDecl::new(decl_type, ident, var_type, storage);
+            if let Some(assign) = assign_expr {
+                var.with_assign(assign);
+            }
+            var
+        })
 }
 
 /// Parse an if-else chain, including nested statements in each block.
@@ -472,36 +488,27 @@ where
         });
 
     let storage = just(Token::In)
-        .ignore_then(select! {
-            Token::Ident(ident) => VarStorage::In(ident),
-        })
+        .ignore_then(select! { Token::Ident(ident) => VarStorage::In(ident) })
         .or(just(Token::At)
             .ignore_then(parser_expr(false))
             .map(|expr| VarStorage::At(Box::new(expr))))
         .or_not()
         .map(Option::unwrap_or_default);
 
-    let variable_iterator = select! {
-        Token::Ident(ident) => ident,
-    }
-    .then_ignore(just(Token::Colon))
-    .then(select! {
-        Token::Primitive(var_type) => var_type,
-    })
-    .then(storage)
-    .map(|((ident, var_type), storage)| ForLoopIterDecl::Var {
-        ident,
-        var_type,
-        storage,
-    });
-    let register_iterator = select! {
-    Token::Ident(register) => ForLoopIterDecl::Register { register },
-    };
+    let variable_iterator = select! { Token::Ident(ident) => ident }
+        .then_ignore(just(Token::Colon))
+        .then(select! { Token::Primitive(var_type) => var_type })
+        .then(storage)
+        .map(|((ident, var_type), storage)| ForLoopIterDecl::Var {
+            ident,
+            var_type,
+            storage,
+        });
+    let register_iterator =
+        select! { Token::Ident(register) => ForLoopIterDecl::Register { register } };
     let for_iterator = variable_iterator.or(register_iterator);
     let for_range = parser_expr(false)
-        .then(select! {
-            Token::Range(range) => range,
-        })
+        .then(select! { Token::Range(range) => range })
         .then(parser_expr(false))
         .map(|((start, range), end)| (start, range, end));
     let for_step = just(Token::Step).ignore_then(parser_expr(false)).or_not();
@@ -597,6 +604,19 @@ mod tests {
             .expect("test source should parse")
     }
 
+    fn parse_statement(source: &str) -> Statement {
+        let tokens = Token::lexer(source)
+            .spanned()
+            .map(|(token, span)| (token.expect("test source should lex"), span.into()));
+        let input =
+            Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
+
+        parser_statement()
+            .parse(input)
+            .into_result()
+            .expect("test source should parse")
+    }
+
     fn parse_if_else(source: &str) -> IfElse {
         let tokens = Token::lexer(source)
             .spanned()
@@ -630,7 +650,10 @@ mod tests {
         let input =
             Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
 
-        let Statement::Loop(loop_stmt) = parser_statement()
+        let Statement {
+            label: _,
+            inner: StmtInner::Loop(loop_stmt),
+        } = parser_statement()
             .parse(input)
             .into_result()
             .expect("test source should parse")
@@ -710,9 +733,18 @@ else                 { var third:  u8; }
         assert!(if_else.branches[0].condition.is_some());
         assert!(if_else.branches[1].condition.is_some());
         assert!(if_else.branches[2].condition.is_none());
-        assert!(matches!(if_else.branches[0].block[0], Statement::Var(_)));
-        assert!(matches!(if_else.branches[1].block[0], Statement::Var(_)));
-        assert!(matches!(if_else.branches[2].block[0], Statement::Var(_)));
+        assert!(matches!(
+            if_else.branches[0].block[0].inner,
+            StmtInner::Var(_)
+        ));
+        assert!(matches!(
+            if_else.branches[1].block[0].inner,
+            StmtInner::Var(_)
+        ));
+        assert!(matches!(
+            if_else.branches[2].block[0].inner,
+            StmtInner::Var(_)
+        ));
     }
 
     #[test]
@@ -720,7 +752,13 @@ else                 { var third:  u8; }
         let if_else = parse_if_else("if outer { if inner { var nested: u8; } }");
 
         assert_eq!(if_else.branches.len(), 1);
-        let [Statement::If(nested)] = &if_else.branches[0].block[..] else {
+        let [
+            Statement {
+                label: _,
+                inner: StmtInner::If(nested),
+            },
+        ] = &if_else.branches[0].block[..]
+        else {
             panic!("expected nested if statement");
         };
         assert_eq!(nested.branches.len(), 1);
@@ -731,9 +769,26 @@ else                 { var third:  u8; }
         let block = parse_block("{ var value: u8; if ready { var nested: u8; } }");
 
         assert_eq!(block.len(), 2);
-        assert!(matches!(block[0], Statement::Var(_)));
-        assert!(matches!(block[1], Statement::If(_)));
+        assert!(matches!(block[0].inner, StmtInner::Var(_)));
+        assert!(matches!(block[1].inner, StmtInner::If(_)));
         assert!(parse_block("{}").is_empty());
+    }
+
+    #[test]
+    fn parses_labels_on_statements() {
+        let variable = parse_statement("'variable_label: var value: u8;");
+        assert_eq!(variable.label, Some(Label("variable_label".into())));
+        assert!(matches!(variable.inner, StmtInner::Var(_)));
+
+        let loop_stmt = parse_statement("'loop_label: loop { }");
+        assert_eq!(loop_stmt.label, Some(Label("loop_label".into())));
+        assert!(matches!(loop_stmt.inner, StmtInner::Loop(_)));
+
+        let conditional = parse_statement("'if_label: if ready { }");
+        assert_eq!(conditional.label, Some(Label("if_label".into())));
+        assert!(matches!(conditional.inner, StmtInner::If(_)));
+
+        assert_eq!(parse_statement("loop { }").label, None);
     }
 
     #[test]

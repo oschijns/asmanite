@@ -166,9 +166,7 @@ where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
     recursive(|expr| {
-        let literal = select! {
-            Token::Lit(literal) => Expr::Lit(literal),
-        };
+        let literal = select! { Token::Lit(literal) => Expr::Lit(literal) };
 
         let arguments = expr
             .clone()
@@ -274,9 +272,7 @@ pub fn parse_assign_op<'tok, 'src: 'tok, I>()
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
-    let assign = select! {
-        Token::Assign(assign) => assign,
-    };
+    let assign = select! { Token::Assign(assign) => assign };
 
     // All assign operations have the same precedence level and are associative from right to left
     pratt::infix(
