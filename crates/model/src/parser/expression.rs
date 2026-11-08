@@ -162,7 +162,7 @@ pub fn parser_function_call<'tok, 'src: 'tok, I>()
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
-    let arguments = parser_expr()
+    let arguments = parser_expr(false)
         .separated_by(just(Token::Comma))
         .allow_trailing()
         .collect::<Vec<_>>()
@@ -241,9 +241,12 @@ where
     })
 }
 
-/// Read tokens to produce an expression
-pub fn parser_expr<'tok, 'src: 'tok, I>()
--> impl Parser<'tok, I, Expr, extra::Err<Rich<'tok, Token>>>
+/// Read tokens to produce an expression.
+/// Provide a flag to indicate if only constant expression should be allowed.
+/// Constant expression prevent the use of assignments inside of expressions.
+pub fn parser_expr<'tok, 'src: 'tok, I>(
+    const_expr: bool,
+) -> impl Parser<'tok, I, Expr, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
@@ -284,12 +287,14 @@ where
         let mut operators = Vec::with_capacity(bitmasks.len() + 3);
 
         // Add the binary operators, then the unary ones and the assignments
+        operators.push(parse_type_cast().boxed());
+        operators.push(parse_unary_op().boxed());
         for (&(assoc, prec), &mask) in bitmasks.iter() {
             operators.push(parse_binary_op(assoc, prec, mask).boxed());
         }
-        operators.push(parse_unary_op().boxed());
-        operators.push(parse_assign_op().boxed());
-        operators.push(parse_type_cast().boxed());
+        if !const_expr {
+            operators.push(parse_assign_op().boxed());
+        }
 
         // Set the possible operators encountered between atoms
         atom.pratt(operators)
@@ -328,7 +333,7 @@ mod tests {
         let input =
             Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
 
-        parser_expr()
+        parser_expr(false)
             .parse(input)
             .into_result()
             .expect("test source should parse")
@@ -426,7 +431,7 @@ mod tests {
             .map(|(token, span)| (token.expect("test source should lex"), span.into()));
         let input =
             Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
-        assert!(parser_expr().parse(input).into_result().is_err());
+        assert!(parser_expr(true).parse(input).into_result().is_err());
     }
 
     #[test]

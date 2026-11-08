@@ -302,8 +302,23 @@ impl IntLit {
     /// Parse integer literal `0`
     #[inline]
     fn parse<'s>(lex: &Lexer<'s, Token>) -> Self {
-        let i = lex.slice().parse::<u128>().unwrap();
-        Self(i)
+        let literal = lex.slice().replace('_', "");
+
+        // Check if the literal has a prefix
+        let (digits, radix) = if literal.len() >= 2 {
+            match &literal[..2] {
+                "0b" => (&literal[2..], 2),
+                "0o" => (&literal[2..], 8),
+                "0x" => (&literal[2..], 16),
+                _ => (literal.as_str(), 10),
+            }
+        } else {
+            (literal.as_str(), 10)
+        };
+        Self(
+            u128::from_str_radix(digits, radix)
+                .expect("digits should have been validated by regex beforehand"),
+        )
     }
 }
 

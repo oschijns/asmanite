@@ -1,4 +1,10 @@
-use crate::{lexer::atom::*, parser::expression::Expr};
+use crate::{
+    lexer::{atom::*, token::Token},
+    parser::expression::{Expr, parser_expr},
+};
+use chumsky::{
+    Parser, error::Rich, extra, input::ValueInput, prelude::just, select, span::SimpleSpan,
+};
 
 // MARK: AST
 
@@ -150,6 +156,50 @@ pub struct ForLoopHeader {
 
 // MARK: Parsers
 
+/// Parse a variable, static, or constant declaration.
+pub fn parser_var_decl<'tok, 'src: 'tok, I>()
+-> impl Parser<'tok, I, VarDecl, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    let storage = just(Token::In)
+        .ignore_then(select! {
+            Token::Ident(ident) => VarStorage::In(ident),
+        })
+        .or(just(Token::At)
+            .ignore_then(parser_expr(true))
+            .map(|expr| VarStorage::At(Box::new(expr))))
+        .or_not()
+        .map(Option::unwrap_or_default);
+
+    select! {
+        Token::VarDecl(decl_type) => decl_type,
+    }
+    .then(select! {
+        Token::Ident(ident) => ident,
+    })
+    .then_ignore(just(Token::Colon))
+    .then(select! {
+        Token::Primitive(var_type) => var_type,
+    })
+    .then(storage)
+    .then(
+        just(Token::Assign(Assign::new()))
+            .ignore_then(parser_expr(true))
+            .or_not(),
+    )
+    .then_ignore(just(Token::Semicolon))
+    .map(
+        |((((decl_type, ident), var_type), storage), assign_expr)| VarDecl {
+            decl_type,
+            ident,
+            var_type,
+            storage,
+            assign_expr: assign_expr.map(Box::new),
+        },
+    )
+}
+
 // MARK: Notes
 
 // TODO:
@@ -188,3 +238,80 @@ pub struct ForLoopHeader {
         ...
     }#
 */
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{lexer::token::Token, parser::expression::AssignOp};
+    use chumsky::input::{Input, Stream};
+    use logos::Logos;
+
+    fn parse_var_decl(source: &str) -> VarDecl {
+        let tokens = Token::lexer(source)
+            .spanned()
+            .map(|(token, span)| (token.expect("test source should lex"), span.into()));
+        let input =
+            Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
+
+        parser_var_decl()
+            .parse(input)
+            .into_result()
+            .expect("test source should parse")
+    }
+
+    #[test]
+    fn parses_variable_declarations_with_storage_and_initializers() {
+        let declarations = [
+            "var my_var: u8 in zeropage;",
+            "var my_var: u8 at ADDRESS = a += 25 + 2;",
+            "static MY_STATIC: u8 at 0x0010;",
+            "static MY_STATIC2: u8 at 0x0010 = 34;",
+            "static MY_STATIC3: u8 = 34;",
+            "var my_var2: u8 in zeropage = a = 50 + 2;",
+            "var my_var3: u8 = 13 + 2;",
+            "const MY_CONST: u8 = 56 + 34;",
+        ];
+
+        for declaration in declarations {
+            parse_var_decl(declaration);
+        }
+    }
+
+    #[test]
+    fn keeps_address_and_initializer_separate() {
+        let declaration = parse_var_decl("var my_var: u8 at ADDRESS = a += 25 + 2;");
+
+        assert_eq!(
+            declaration.storage,
+            VarStorage::At(Box::new(Expr::Var(crate::parser::path::Path::new(&[
+                "ADDRESS"
+            ]))))
+        );
+        assert!(matches!(
+            declaration.assign_expr,
+            Some(expr) if matches!(*expr, Expr::Assign(AssignOp { .. }))
+        ));
+    }
+
+    #[test]
+    fn parses_hexadecimal_fixed_address() {
+        let declaration = parse_var_decl("static MY_STATIC: u8 at 0x0010;");
+
+        assert_eq!(
+            declaration.storage,
+            VarStorage::At(Box::new(Expr::Lit(Literal::Int(IntLit(16)))))
+        );
+    }
+
+    #[test]
+    fn requires_a_semicolon() {
+        let source = "var my_var: u8";
+        let tokens = Token::lexer(source)
+            .spanned()
+            .map(|(token, span)| (token.expect("test source should lex"), span.into()));
+        let input =
+            Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
+
+        assert!(parser_var_decl().parse(input).into_result().is_err());
+    }
+}
