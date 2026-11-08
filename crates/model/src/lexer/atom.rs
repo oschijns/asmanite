@@ -616,6 +616,8 @@ pub enum DelimType {
 }
 impl_display!(DelimType, str);
 
+// MARK: RANGE
+
 /// Range '..' or '..='
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Range {

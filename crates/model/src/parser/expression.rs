@@ -156,6 +156,66 @@ const PAREN_OPEN: Token = Token::Delimiter(delimiter::PAREN_OPEN);
 /// Close parenthesis token
 const PAREN_CLOSE: Token = Token::Delimiter(delimiter::PAREN_CLOSE);
 
+/// Read tokens to produce an expression.
+/// Provide a flag to indicate if only constant expression should be allowed.
+/// Constant expression prevent the use of assignments inside of expressions.
+pub fn parser_expr<'tok, 'src: 'tok, I>(
+    const_expr: bool,
+) -> impl Parser<'tok, I, Expr, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    recursive(|expr| {
+        let literal = select! {
+            Token::Lit(literal) => Expr::Lit(literal),
+        };
+
+        let arguments = expr
+            .clone()
+            .separated_by(just(Token::Comma))
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .delimited_by(just(PAREN_OPEN), just(PAREN_CLOSE));
+
+        let path =
+            parser_path()
+                .boxed()
+                .then(arguments.or_not())
+                .map(|(callee, args)| match args {
+                    Some(args) => Expr::Call(FunctionCall::new(callee, args)),
+                    None => Expr::Var(callee),
+                });
+
+        let grouped = expr
+            .clone()
+            .delimited_by(just(PAREN_OPEN), just(PAREN_CLOSE))
+            .map(|inner| Expr::Group(Box::new(inner)));
+
+        // node tokens to be associated with operators
+        let atom = literal.or(path).or(grouped);
+
+        // Collect parsers for operators
+        // Binary operators have various level of precedences
+        let bitmasks = gen_op_bitmasks();
+
+        // Allocate storage for all the operator types
+        let mut operators = Vec::with_capacity(bitmasks.len() + 3);
+
+        // Add the binary operators, then the unary ones and the assignments
+        operators.push(parse_type_cast().boxed());
+        operators.push(parse_unary_op().boxed());
+        for (&(assoc, prec), &mask) in bitmasks.iter() {
+            operators.push(parse_binary_op(assoc, prec, mask).boxed());
+        }
+        if !const_expr {
+            operators.push(parse_assign_op().boxed());
+        }
+
+        // Set the possible operators encountered between atoms
+        atom.pratt(operators)
+    })
+}
+
 /// Parse a function call
 pub fn parser_function_call<'tok, 'src: 'tok, I>()
 -> impl Parser<'tok, I, FunctionCall, extra::Err<Rich<'tok, Token>>>
@@ -241,66 +301,6 @@ where
     })
 }
 
-/// Read tokens to produce an expression.
-/// Provide a flag to indicate if only constant expression should be allowed.
-/// Constant expression prevent the use of assignments inside of expressions.
-pub fn parser_expr<'tok, 'src: 'tok, I>(
-    const_expr: bool,
-) -> impl Parser<'tok, I, Expr, extra::Err<Rich<'tok, Token>>>
-where
-    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-{
-    recursive(|expr| {
-        let literal = select! {
-            Token::Lit(literal) => Expr::Lit(literal),
-        };
-
-        let arguments = expr
-            .clone()
-            .separated_by(just(Token::Comma))
-            .allow_trailing()
-            .collect::<Vec<_>>()
-            .delimited_by(just(PAREN_OPEN), just(PAREN_CLOSE));
-
-        let path =
-            parser_path()
-                .boxed()
-                .then(arguments.or_not())
-                .map(|(callee, args)| match args {
-                    Some(args) => Expr::Call(FunctionCall::new(callee, args)),
-                    None => Expr::Var(callee),
-                });
-
-        let grouped = expr
-            .clone()
-            .delimited_by(just(PAREN_OPEN), just(PAREN_CLOSE))
-            .map(|inner| Expr::Group(Box::new(inner)));
-
-        // node tokens to be associated with operators
-        let atom = literal.or(path).or(grouped);
-
-        // Collect parsers for operators
-        // Binary operators have various level of precedences
-        let bitmasks = gen_op_bitmasks();
-
-        // Allocate storage for all the operator types
-        let mut operators = Vec::with_capacity(bitmasks.len() + 3);
-
-        // Add the binary operators, then the unary ones and the assignments
-        operators.push(parse_type_cast().boxed());
-        operators.push(parse_unary_op().boxed());
-        for (&(assoc, prec), &mask) in bitmasks.iter() {
-            operators.push(parse_binary_op(assoc, prec, mask).boxed());
-        }
-        if !const_expr {
-            operators.push(parse_assign_op().boxed());
-        }
-
-        // Set the possible operators encountered between atoms
-        atom.pratt(operators)
-    })
-}
-
 /// Iterate over the list of operators. On binary operators,
 /// identify those that share the same associativity and the same precedence.
 /// Construct a bitmask for each set of common operators.
@@ -317,6 +317,8 @@ fn gen_op_bitmasks() -> HashMap<(Associativity, Precedence), u64> {
     }
     masks
 }
+
+// MARK: Tests
 
 #[cfg(test)]
 mod tests {

@@ -3,7 +3,8 @@ use crate::{
     parser::expression::{Expr, parser_expr},
 };
 use chumsky::{
-    Parser, error::Rich, extra, input::ValueInput, prelude::just, select, span::SimpleSpan,
+    IterParser, Parser, error::Rich, extra, input::ValueInput, prelude::just, recursive::recursive,
+    select, span::SimpleSpan,
 };
 
 // MARK: AST
@@ -156,12 +157,35 @@ pub struct ForLoopHeader {
 
 // MARK: Parsers
 
+/// Open brace token
+const BRACE_OPEN: Token = Token::Delimiter(delimiter::BRACE_OPEN);
+
+/// Close brace token
+const BRACE_CLOSE: Token = Token::Delimiter(delimiter::BRACE_CLOSE);
+
+/// Parse a statement.
+pub fn parser_statement<'tok, 'src: 'tok, I>()
+-> impl Parser<'tok, I, Statement, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    recursive(|statement| {
+        let block = parser_block(statement.clone()).boxed();
+        let if_else = parser_if_else(block).map(Statement::If).boxed();
+        parser_var_decl().map(Statement::Var).boxed().or(if_else)
+    })
+}
+
 /// Parse a variable, static, or constant declaration.
 pub fn parser_var_decl<'tok, 'src: 'tok, I>()
 -> impl Parser<'tok, I, VarDecl, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
+    // Where to place the variable ?
+    // - unspecified
+    // - in a given bank
+    // - at a specific address
     let storage = just(Token::In)
         .ignore_then(select! {
             Token::Ident(ident) => VarStorage::In(ident),
@@ -172,6 +196,10 @@ where
         .or_not()
         .map(Option::unwrap_or_default);
 
+    // Type of variable declared (var, static, const)
+    // followed by its identifier and by its type.
+    // Optionnaly, we may specify where the variable
+    // is stored and a value at initialization.
     select! {
         Token::VarDecl(decl_type) => decl_type,
     }
@@ -185,7 +213,7 @@ where
     .then(storage)
     .then(
         just(Token::Assign(Assign::new()))
-            .ignore_then(parser_expr(true))
+            .ignore_then(parser_expr(false))
             .or_not(),
     )
     .then_ignore(just(Token::Semicolon))
@@ -200,10 +228,79 @@ where
     )
 }
 
+/// Parse an if-else chain, including nested statements in each block.
+pub fn parser_if_else<'tok, 'src: 'tok, I, B>(
+    block: B,
+) -> impl Parser<'tok, I, IfElse, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+    B: Parser<'tok, I, Box<[Statement]>, extra::Err<Rich<'tok, Token>>> + Clone + 'tok,
+{
+    // Condition is a non constant expression
+    let condition = parser_expr(false).boxed();
+
+    // if <condition> { ... }
+    let if_branch = just(Token::If)
+        .ignore_then(condition.clone())
+        .then(block.clone())
+        .map(|(condition, block)| Branching {
+            condition: Some(Box::new(condition)),
+            block,
+        });
+
+    // else if <condition> { ... }
+    let else_if_branch = just(Token::Else)
+        .ignore_then(just(Token::If))
+        .ignore_then(condition)
+        .then(block.clone())
+        .map(|(condition, block)| Branching {
+            condition: Some(Box::new(condition)),
+            block,
+        });
+
+    // else { ... }
+    let else_branch = just(Token::Else).ignore_then(block).map(|block| Branching {
+        condition: None,
+        block,
+    });
+
+    // chain the three types of elements
+    if_branch
+        .then(else_if_branch.repeated().collect::<Vec<_>>())
+        .then(else_branch.or_not())
+        .map(|((first, mut else_if), else_branch)| {
+            let mut branches =
+                Vec::with_capacity(1 + else_if.len() + usize::from(else_branch.is_some()));
+            branches.push(first);
+            branches.append(&mut else_if);
+            if let Some(else_branch) = else_branch {
+                branches.push(else_branch);
+            }
+            IfElse {
+                branches: branches.into_boxed_slice(),
+            }
+        })
+}
+
+/// Parse a block of code delimited by braces
+pub fn parser_block<'tok, 'src: 'tok, I, S>(
+    statement: S,
+) -> impl Parser<'tok, I, Box<[Statement]>, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+    S: Parser<'tok, I, Statement, extra::Err<Rich<'tok, Token>>>,
+{
+    // Accept a list of statements enclosed in braces `{ ... }`
+    statement
+        .repeated()
+        .collect::<Vec<_>>()
+        .delimited_by(just(BRACE_OPEN), just(BRACE_CLOSE))
+        .map(Vec::into_boxed_slice)
+}
+
 // MARK: Notes
 
 // TODO:
-// if-else chains
 // loops (loop, for, while, do-while)
 // switch
 // return       Return from a function
@@ -239,6 +336,8 @@ where
     }#
 */
 
+// MARK: Tests
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,6 +353,32 @@ mod tests {
             Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
 
         parser_var_decl()
+            .parse(input)
+            .into_result()
+            .expect("test source should parse")
+    }
+
+    fn parse_if_else(source: &str) -> IfElse {
+        let tokens = Token::lexer(source)
+            .spanned()
+            .map(|(token, span)| (token.expect("test source should lex"), span.into()));
+        let input =
+            Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
+
+        parser_if_else(parser_block(parser_statement()).boxed())
+            .parse(input)
+            .into_result()
+            .expect("test source should parse")
+    }
+
+    fn parse_block(source: &str) -> Box<[Statement]> {
+        let tokens = Token::lexer(source)
+            .spanned()
+            .map(|(token, span)| (token.expect("test source should lex"), span.into()));
+        let input =
+            Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
+
+        parser_block(parser_statement())
             .parse(input)
             .into_result()
             .expect("test source should parse")
@@ -313,5 +438,43 @@ mod tests {
             Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
 
         assert!(parser_var_decl().parse(input).into_result().is_err());
+    }
+
+    #[test]
+    fn parses_if_else_chain() {
+        let if_else = parse_if_else(
+            "if toto == true { var first: u8; } \
+             else if tata > 0 { var second: u8; } \
+             else { var fallback: u8; }",
+        );
+
+        assert_eq!(if_else.branches.len(), 3);
+        assert!(if_else.branches[0].condition.is_some());
+        assert!(if_else.branches[1].condition.is_some());
+        assert!(if_else.branches[2].condition.is_none());
+        assert!(matches!(if_else.branches[0].block[0], Statement::Var(_)));
+        assert!(matches!(if_else.branches[1].block[0], Statement::Var(_)));
+        assert!(matches!(if_else.branches[2].block[0], Statement::Var(_)));
+    }
+
+    #[test]
+    fn parses_if_without_else_and_nested_if() {
+        let if_else = parse_if_else("if outer { if inner { var nested: u8; } }");
+
+        assert_eq!(if_else.branches.len(), 1);
+        let [Statement::If(nested)] = &if_else.branches[0].block[..] else {
+            panic!("expected nested if statement");
+        };
+        assert_eq!(nested.branches.len(), 1);
+    }
+
+    #[test]
+    fn parses_reusable_block_with_nested_statements() {
+        let block = parse_block("{ var value: u8; if ready { var nested: u8; } }");
+
+        assert_eq!(block.len(), 2);
+        assert!(matches!(block[0], Statement::Var(_)));
+        assert!(matches!(block[1], Statement::If(_)));
+        assert!(parse_block("{}").is_empty());
     }
 }

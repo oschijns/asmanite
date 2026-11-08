@@ -11,6 +11,8 @@ impl From<()> for LexError {
     }
 }
 
+// MARK: Token
+
 /// Tokens in the language
 #[repr(u16)]
 #[derive(Logos, Debug, Clone, PartialEq, strum::EnumDiscriminants)]
@@ -244,6 +246,8 @@ pub enum Token {
     Ident(Ident),
 }
 
+// MARK: Parse token
+
 /// Parse single-line doc-comment `/// ...`
 #[inline]
 fn parse_single_comment<'s>(lex: &Lexer<'s, Token>) -> String {
@@ -359,6 +363,8 @@ impl Ident {
         Self(i.into_boxed_str())
     }
 }
+
+// MARK: Tests
 
 #[cfg(test)]
 mod tests {
