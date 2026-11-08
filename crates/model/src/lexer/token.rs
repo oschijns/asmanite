@@ -170,9 +170,9 @@ pub enum Token {
     #[token("for")]
     For,
 
-    /// In (for-loop and bank used)
-    #[token("in")]
-    In,
+    /// For-loop range
+    #[token("of")]
+    Of,
 
     /// For-loop step
     #[token("step")]
@@ -218,6 +218,10 @@ pub enum Token {
     #[token("as")]
     As,
 
+    /// Specify which bank to use to store the variable
+    #[token("in")]
+    In,
+
     /// Specify fixed address location
     #[token("at")]
     At,
@@ -232,7 +236,7 @@ pub enum Token {
     #[regex(r"0b[01][01_]*"              , |i| Literal::Int  (IntLit  ::parse    (i)))]
     #[regex(r"0o[0-7][0-7_]*"            , |i| Literal::Int  (IntLit  ::parse    (i)))]
     #[regex(r"0x[0-9A-Fa-f][0-9A-Fa-f_]*", |i| Literal::Int  (IntLit  ::parse    (i)))]
-    #[regex(r"\d+\.\d*([eE][+-]?\d+)?"   , |f| Literal::Float(FloatLit::parse    (f)))]
+    #[regex(r"\d+\.\d+([eE][+-]?\d+)?"   , |f| Literal::Float(FloatLit::parse    (f)))]
     #[regex(r"\.\d+([eE][+-]?\d+)?"      , |f| Literal::Float(FloatLit::parse    (f)))]
     #[regex(r#""([^"\\]|\\.)*""#         , |s| Literal::Str  (StrLit  ::parse    (s)))]
     Lit(Literal),
@@ -249,6 +253,7 @@ pub enum Token {
 // MARK: Parse token
 
 /// Parse single-line doc-comment `/// ...`
+#[allow(unused)]
 #[inline]
 fn parse_single_comment<'s>(lex: &Lexer<'s, Token>) -> String {
     // skip `///`
@@ -256,6 +261,7 @@ fn parse_single_comment<'s>(lex: &Lexer<'s, Token>) -> String {
 }
 
 /// Parse multi-line doc-comment `/** ... */`
+#[allow(unused)]
 #[inline]
 fn parse_multi_comment<'s>(lex: &Lexer<'s, Token>) -> String {
     // remove the `/**` and `*/` on both ends
@@ -368,5 +374,5 @@ impl Ident {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    //use super::*;
 }

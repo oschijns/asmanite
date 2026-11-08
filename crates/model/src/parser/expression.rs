@@ -157,10 +157,10 @@ const PAREN_OPEN: Token = Token::Delimiter(delimiter::PAREN_OPEN);
 const PAREN_CLOSE: Token = Token::Delimiter(delimiter::PAREN_CLOSE);
 
 /// Read tokens to produce an expression.
-/// Provide a flag to indicate if only constant expression should be allowed.
-/// Constant expression prevent the use of assignments inside of expressions.
+/// Provide a flag to indicate if assignments are allowed in the expression.
+/// Assignments can introduce syntax ambiguities in some contextes.
 pub fn parser_expr<'tok, 'src: 'tok, I>(
-    const_expr: bool,
+    allow_assign: bool,
 ) -> impl Parser<'tok, I, Expr, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
@@ -207,7 +207,7 @@ where
         for (&(assoc, prec), &mask) in bitmasks.iter() {
             operators.push(parse_binary_op(assoc, prec, mask).boxed());
         }
-        if !const_expr {
+        if allow_assign {
             operators.push(parse_assign_op().boxed());
         }
 
@@ -222,7 +222,7 @@ pub fn parser_function_call<'tok, 'src: 'tok, I>()
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
-    let arguments = parser_expr(false)
+    let arguments = parser_expr(true)
         .separated_by(just(Token::Comma))
         .allow_trailing()
         .collect::<Vec<_>>()
@@ -335,7 +335,7 @@ mod tests {
         let input =
             Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
 
-        parser_expr(false)
+        parser_expr(true)
             .parse(input)
             .into_result()
             .expect("test source should parse")

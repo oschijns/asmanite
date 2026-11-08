@@ -22,6 +22,7 @@ impl Path {
     }
 
     /// Construct a new pat hfrom to slices of identifiers
+    #[allow(unused)]
     pub(crate) fn from_slices(path_a: &[Ident], path_b: &[Ident]) -> Self {
         let mut buffer = Vec::with_capacity(path_a.len() + path_b.len());
         for e in path_a.iter() {

@@ -13,15 +13,21 @@ use chumsky::{
 /// Instruction that can appear in a block of code
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
+    /// In-bank block for variable declaration
+    Bank(InBank),
+
     /// Variable declaration
     Var(VarDecl),
 
     /// If-else chain
     If(IfElse),
+
+    /// Loop block
+    Loop(Loop),
 }
 
 /// Parameter declaration
-/// Handle variable declaration for function parameters and for-loop iterator
+/// Handle variable declaration for function parameters
 /// The `var` keyword is omitted and a register can be used instead
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParamDecl {
@@ -63,6 +69,32 @@ pub struct VarDecl {
     pub assign_expr: Option<Box<Expr>>,
 }
 
+impl VarDecl {
+    /// Construct the variable declaration
+    #[inline]
+    pub fn new(
+        decl_type: VarDeclType,
+        ident: Ident,
+        var_type: Primitive,
+        storage: VarStorage,
+    ) -> Self {
+        Self {
+            decl_type,
+            ident,
+            var_type,
+            storage,
+            assign_expr: None,
+        }
+    }
+
+    /// Add the assignment expression
+    #[inline]
+    pub fn with_assign(&mut self, assign: Expr) -> &Self {
+        self.assign_expr = Some(Box::new(assign));
+        self
+    }
+}
+
 /// Specify where to store the variable
 #[derive(Debug, Default, Clone, PartialEq)]
 pub enum VarStorage {
@@ -78,12 +110,45 @@ pub enum VarStorage {
     At(Box<Expr>),
 }
 
+impl VarStorage {
+    /// Create "at" variant of the variable storage
+    #[inline]
+    pub fn new_at(at: Expr) -> Self {
+        Self::At(Box::new(at))
+    }
+}
+
+/// Block specifying where to store a bunch of variables
+#[derive(Debug, Clone, PartialEq)]
+pub struct InBank {
+    /// Set of variables to declare in the given bank
+    pub variables: Box<[VarDecl]>,
+}
+
+impl InBank {
+    #[inline]
+    pub fn new(vars: Vec<VarDecl>) -> Self {
+        Self {
+            variables: vars.into_boxed_slice(),
+        }
+    }
+}
+
 /// If-else branching chain
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfElse {
     /// Branches in the if-else chain
     /// Atleast one must be present and only the last one may omit a condition
     pub branches: Box<[Branching]>,
+}
+
+impl IfElse {
+    #[inline]
+    pub fn new(branches: Vec<Branching>) -> Self {
+        Self {
+            branches: branches.into_boxed_slice(),
+        }
+    }
 }
 
 /// Switch statement
@@ -97,6 +162,16 @@ pub struct Switch {
     pub cases: Box<[Branching]>,
 }
 
+impl Switch {
+    #[inline]
+    pub fn new(variable: Expr, cases: Vec<Branching>) -> Self {
+        Self {
+            variable: Box::new(variable),
+            cases: cases.into_boxed_slice(),
+        }
+    }
+}
+
 /// Branching element
 #[derive(Debug, Clone, PartialEq)]
 pub struct Branching {
@@ -108,6 +183,26 @@ pub struct Branching {
     pub block: Box<[Statement]>,
 }
 
+impl Branching {
+    // New branch of an if-else chain
+    #[inline]
+    pub fn new(condition: Expr, block: Vec<Statement>) -> Self {
+        Self {
+            condition: Some(Box::new(condition)),
+            block: block.into_boxed_slice(),
+        }
+    }
+
+    // Final else branch
+    #[inline]
+    pub fn new_else(block: Vec<Statement>) -> Self {
+        Self {
+            condition: None,
+            block: block.into_boxed_slice(),
+        }
+    }
+}
+
 /// Loop
 #[derive(Debug, Clone, PartialEq)]
 pub struct Loop {
@@ -116,6 +211,17 @@ pub struct Loop {
 
     /// Block of code to execute as long as the condition is true
     pub block: Box<[Statement]>,
+}
+
+impl Loop {
+    // Create a new loop
+    #[inline]
+    pub fn new(loop_type: LoopType, block: Vec<Statement>) -> Self {
+        Self {
+            loop_type,
+            block: block.into_boxed_slice(),
+        }
+    }
 }
 
 /// Define the type of loop
@@ -142,17 +248,76 @@ pub struct WhileLoopHeader {
     pub do_while: bool,
 }
 
+impl WhileLoopHeader {
+    // Create a new loop
+    #[inline]
+    pub fn new(condition: Expr, do_while: bool) -> Self {
+        Self {
+            condition: Box::new(condition),
+            do_while,
+        }
+    }
+}
+
 /// Header of a for loop
 #[derive(Debug, Clone, PartialEq)]
 pub struct ForLoopHeader {
-    /// Initialize the iterator
-    pub init: ParamDecl,
+    /// Define the iterator used
+    pub iter: ForLoopIterDecl,
 
-    /// Condition to stop iterating
-    pub condition: Box<Expr>,
+    /// Type of range
+    pub range: Range,
+
+    /// Start value of the range
+    pub start: Box<Expr>,
+
+    /// End value of the range
+    pub end: Box<Expr>,
 
     /// Increment or decrement the iterator by the given step
-    pub step: i64,
+    /// If unspecified, this will default to +1
+    pub step: Option<Box<Expr>>,
+}
+
+impl ForLoopHeader {
+    // Create a new for loop header
+    #[inline]
+    pub fn new(iter: ForLoopIterDecl, range: Range, start: Expr, end: Expr) -> Self {
+        Self {
+            iter,
+            range,
+            start: Box::new(start),
+            end: Box::new(end),
+            step: None,
+        }
+    }
+
+    /// Add the step expression
+    #[inline]
+    pub fn with_step(&mut self, step: Expr) -> &Self {
+        self.step = Some(Box::new(step));
+        self
+    }
+}
+
+/// Iterator declaration for for-loop
+#[derive(Debug, Clone, PartialEq)]
+pub enum ForLoopIterDecl {
+    /// Declare a variable with a memory location
+    Var {
+        /// Identifier of the variable
+        ident: Ident,
+
+        // TODO: for now we are onyl supporting primitives
+        /// Type of the variable
+        var_type: Primitive,
+
+        /// Storage location for the variable
+        storage: VarStorage,
+    },
+
+    /// Use a register directly
+    Register { register: Ident },
 }
 
 // MARK: Parsers
@@ -171,8 +336,13 @@ where
 {
     recursive(|statement| {
         let block = parser_block(statement.clone()).boxed();
-        let if_else = parser_if_else(block).map(Statement::If).boxed();
-        parser_var_decl().map(Statement::Var).boxed().or(if_else)
+        let if_else = parser_if_else(block.clone()).map(Statement::If).boxed();
+        let loop_stmt = parser_loop(block).map(Statement::Loop).boxed();
+        parser_var_decl()
+            .map(Statement::Var)
+            .boxed()
+            .or(if_else)
+            .or(loop_stmt)
     })
 }
 
@@ -191,7 +361,7 @@ where
             Token::Ident(ident) => VarStorage::In(ident),
         })
         .or(just(Token::At)
-            .ignore_then(parser_expr(true))
+            .ignore_then(parser_expr(false))
             .map(|expr| VarStorage::At(Box::new(expr))))
         .or_not()
         .map(Option::unwrap_or_default);
@@ -213,19 +383,17 @@ where
     .then(storage)
     .then(
         just(Token::Assign(Assign::new()))
-            .ignore_then(parser_expr(false))
+            .ignore_then(parser_expr(true))
             .or_not(),
     )
     .then_ignore(just(Token::Semicolon))
-    .map(
-        |((((decl_type, ident), var_type), storage), assign_expr)| VarDecl {
-            decl_type,
-            ident,
-            var_type,
-            storage,
-            assign_expr: assign_expr.map(Box::new),
-        },
-    )
+    .map(|((((decl_type, ident), var_type), storage), assign_expr)| {
+        let mut var = VarDecl::new(decl_type, ident, var_type, storage);
+        if let Some(assign) = assign_expr {
+            var.with_assign(assign);
+        }
+        var
+    })
 }
 
 /// Parse an if-else chain, including nested statements in each block.
@@ -234,35 +402,28 @@ pub fn parser_if_else<'tok, 'src: 'tok, I, B>(
 ) -> impl Parser<'tok, I, IfElse, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    B: Parser<'tok, I, Box<[Statement]>, extra::Err<Rich<'tok, Token>>> + Clone + 'tok,
+    B: Parser<'tok, I, Vec<Statement>, extra::Err<Rich<'tok, Token>>> + Clone + 'tok,
 {
     // Condition is a non constant expression
-    let condition = parser_expr(false).boxed();
+    let condition = parser_expr(true).boxed();
 
     // if <condition> { ... }
     let if_branch = just(Token::If)
         .ignore_then(condition.clone())
         .then(block.clone())
-        .map(|(condition, block)| Branching {
-            condition: Some(Box::new(condition)),
-            block,
-        });
+        .map(|(condition, block)| Branching::new(condition, block));
 
     // else if <condition> { ... }
     let else_if_branch = just(Token::Else)
         .ignore_then(just(Token::If))
         .ignore_then(condition)
         .then(block.clone())
-        .map(|(condition, block)| Branching {
-            condition: Some(Box::new(condition)),
-            block,
-        });
+        .map(|(condition, block)| Branching::new(condition, block));
 
     // else { ... }
-    let else_branch = just(Token::Else).ignore_then(block).map(|block| Branching {
-        condition: None,
-        block,
-    });
+    let else_branch = just(Token::Else)
+        .ignore_then(block)
+        .map(|block| Branching::new_else(block));
 
     // chain the three types of elements
     if_branch
@@ -276,16 +437,96 @@ where
             if let Some(else_branch) = else_branch {
                 branches.push(else_branch);
             }
-            IfElse {
-                branches: branches.into_boxed_slice(),
-            }
+            IfElse::new(branches)
         })
+}
+
+/// Parse infinite, while, do-while, and range-based for loops.
+pub fn parser_loop<'tok, 'src: 'tok, I, B>(
+    block: B,
+) -> impl Parser<'tok, I, Loop, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+    B: Parser<'tok, I, Vec<Statement>, extra::Err<Rich<'tok, Token>>> + Clone + 'tok,
+{
+    let infinite = just(Token::Loop)
+        .ignore_then(block.clone())
+        .map(|block| Loop::new(LoopType::Loop, block));
+
+    let while_loop = just(Token::While)
+        .ignore_then(parser_expr(true))
+        .then(block.clone())
+        .map(|(condition, block)| {
+            let header = WhileLoopHeader::new(condition, false);
+            Loop::new(LoopType::While(header), block)
+        });
+
+    let do_while_loop = just(Token::Do)
+        .ignore_then(block.clone())
+        .then_ignore(just(Token::While))
+        .then(parser_expr(true))
+        .then_ignore(just(Token::Semicolon))
+        .map(|(block, condition)| {
+            let header = WhileLoopHeader::new(condition, true);
+            Loop::new(LoopType::While(header), block)
+        });
+
+    let storage = just(Token::In)
+        .ignore_then(select! {
+            Token::Ident(ident) => VarStorage::In(ident),
+        })
+        .or(just(Token::At)
+            .ignore_then(parser_expr(false))
+            .map(|expr| VarStorage::At(Box::new(expr))))
+        .or_not()
+        .map(Option::unwrap_or_default);
+
+    let variable_iterator = select! {
+        Token::Ident(ident) => ident,
+    }
+    .then_ignore(just(Token::Colon))
+    .then(select! {
+        Token::Primitive(var_type) => var_type,
+    })
+    .then(storage)
+    .map(|((ident, var_type), storage)| ForLoopIterDecl::Var {
+        ident,
+        var_type,
+        storage,
+    });
+    let register_iterator = select! {
+    Token::Ident(register) => ForLoopIterDecl::Register { register },
+    };
+    let for_iterator = variable_iterator.or(register_iterator);
+    let for_range = parser_expr(false)
+        .then(select! {
+            Token::Range(range) => range,
+        })
+        .then(parser_expr(false))
+        .map(|((start, range), end)| (start, range, end));
+    let for_step = just(Token::Step).ignore_then(parser_expr(false)).or_not();
+
+    let for_loop = just(Token::For)
+        .ignore_then(for_iterator)
+        .then_ignore(just(Token::Of))
+        .then(for_range)
+        .then(for_step)
+        .then(block)
+        .map(|(((iter, (start, range, end)), step), block)| {
+            let mut header = ForLoopHeader::new(iter, range, start, end);
+            if let Some(step) = step {
+                header.with_step(step);
+            }
+            Loop::new(LoopType::For(header), block)
+        });
+
+    infinite.or(while_loop).or(do_while_loop).or(for_loop)
 }
 
 /// Parse a block of code delimited by braces
 pub fn parser_block<'tok, 'src: 'tok, I, S>(
     statement: S,
-) -> impl Parser<'tok, I, Box<[Statement]>, extra::Err<Rich<'tok, Token>>>
+) -> impl Parser<'tok, I, Vec<Statement>, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
     S: Parser<'tok, I, Statement, extra::Err<Rich<'tok, Token>>>,
@@ -295,13 +536,11 @@ where
         .repeated()
         .collect::<Vec<_>>()
         .delimited_by(just(BRACE_OPEN), just(BRACE_CLOSE))
-        .map(Vec::into_boxed_slice)
 }
 
 // MARK: Notes
 
 // TODO:
-// loops (loop, for, while, do-while)
 // switch
 // return       Return from a function
 // break        Exit a loop or switch
@@ -371,7 +610,7 @@ mod tests {
             .expect("test source should parse")
     }
 
-    fn parse_block(source: &str) -> Box<[Statement]> {
+    fn parse_block(source: &str) -> Vec<Statement> {
         let tokens = Token::lexer(source)
             .spanned()
             .map(|(token, span)| (token.expect("test source should lex"), span.into()));
@@ -382,6 +621,23 @@ mod tests {
             .parse(input)
             .into_result()
             .expect("test source should parse")
+    }
+
+    fn parse_loop(source: &str) -> Loop {
+        let tokens = Token::lexer(source)
+            .spanned()
+            .map(|(token, span)| (token.expect("test source should lex"), span.into()));
+        let input =
+            Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
+
+        let Statement::Loop(loop_stmt) = parser_statement()
+            .parse(input)
+            .into_result()
+            .expect("test source should parse")
+        else {
+            panic!("expected loop statement");
+        };
+        loop_stmt
     }
 
     #[test]
@@ -443,9 +699,11 @@ mod tests {
     #[test]
     fn parses_if_else_chain() {
         let if_else = parse_if_else(
-            "if toto == true { var first: u8; } \
-             else if tata > 0 { var second: u8; } \
-             else { var fallback: u8; }",
+            "
+if      toto == true { var first:  u8; } 
+else if tata > 0     { var second: u8; } 
+else                 { var third:  u8; }
+",
         );
 
         assert_eq!(if_else.branches.len(), 3);
@@ -476,5 +734,96 @@ mod tests {
         assert!(matches!(block[0], Statement::Var(_)));
         assert!(matches!(block[1], Statement::If(_)));
         assert!(parse_block("{}").is_empty());
+    }
+
+    #[test]
+    fn parses_infinite_while_and_do_while_loops() {
+        let infinite = parse_loop("loop { var value: u8; }");
+        assert!(matches!(infinite.loop_type, LoopType::Loop));
+        assert_eq!(infinite.block.len(), 1);
+
+        let while_loop = parse_loop("while ready { }");
+        assert!(matches!(
+            while_loop.loop_type,
+            LoopType::While(WhileLoopHeader {
+                do_while: false,
+                ..
+            })
+        ));
+
+        let do_while = parse_loop("do { } while ready;");
+        assert!(matches!(
+            do_while.loop_type,
+            LoopType::While(WhileLoopHeader { do_while: true, .. })
+        ));
+    }
+
+    #[test]
+    fn parses_exclusive_for_range_with_default_step() {
+        let loop_stmt = parse_loop("for i: u8 in zeropage of 0..10 { }");
+        let LoopType::For(header) = loop_stmt.loop_type else {
+            panic!("expected for loop");
+        };
+
+        let ForLoopIterDecl::Var {
+            ident,
+            var_type,
+            storage,
+        } = header.iter
+        else {
+            panic!("expected variable iterator");
+        };
+        assert_eq!(ident, Ident::new("i"));
+        assert_eq!(var_type, primitive::U8);
+        assert_eq!(storage, VarStorage::In(Ident::new("zeropage")));
+        assert_eq!(header.range, Range::excl());
+        assert_eq!(*header.start, Expr::Lit(Literal::Int(IntLit(0))));
+        assert_eq!(*header.end, Expr::Lit(Literal::Int(IntLit(10))));
+        assert_eq!(header.step, None);
+    }
+
+    #[test]
+    fn parses_inclusive_for_range_with_fixed_address_and_step() {
+        let loop_stmt = parse_loop("for i: u8 at 0x0100 of 10..=100 step 2 { }");
+        let LoopType::For(header) = loop_stmt.loop_type else {
+            panic!("expected for loop");
+        };
+
+        let ForLoopIterDecl::Var {
+            ident,
+            var_type,
+            storage,
+        } = header.iter
+        else {
+            panic!("expected variable iterator");
+        };
+        assert_eq!(
+            storage,
+            VarStorage::At(Box::new(Expr::Lit(Literal::Int(IntLit(256)))))
+        );
+        assert_eq!(ident, Ident::new("i"));
+        assert_eq!(var_type, primitive::U8);
+        assert_eq!(header.range, Range::incl());
+        assert_eq!(*header.start, Expr::Lit(Literal::Int(IntLit(10))));
+        assert_eq!(*header.end, Expr::Lit(Literal::Int(IntLit(100))));
+        assert_eq!(
+            header.step,
+            Some(Box::new(Expr::Lit(Literal::Int(IntLit(2)))))
+        );
+    }
+
+    #[test]
+    fn parses_for_loop_using_register_iterator() {
+        let loop_stmt = parse_loop("for A of 0..10 { }");
+        let LoopType::For(header) = loop_stmt.loop_type else {
+            panic!("expected for loop");
+        };
+
+        assert_eq!(
+            header.iter,
+            ForLoopIterDecl::Register {
+                register: Ident::new("A")
+            }
+        );
     }
 }

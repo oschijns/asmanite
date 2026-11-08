@@ -12,6 +12,7 @@ pub struct SymbolTree {
 
     /// Extra data for the elements
     /// Specify if the symbol denote a module, variable, function, type, etc..
+    #[allow(unused)]
     symbol_data: HashMap<NodeId, SymbolData>,
 
     /// The root module
