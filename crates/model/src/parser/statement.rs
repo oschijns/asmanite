@@ -1,10 +1,13 @@
 use crate::{
     lexer::{atom::*, token::Token},
-    parser::expression::{Expr, parser_expr},
+    parser::{
+        expression::{Expr, parser_expr},
+        function::{InBank, parser_in_bank},
+    },
 };
 use chumsky::{
-    IterParser, Parser, error::Rich, extra, input::ValueInput, prelude::just, recursive::recursive,
-    select, span::SimpleSpan,
+    IterParser as _, Parser, error::Rich, extra, input::ValueInput, prelude::just,
+    recursive::recursive, select, span::SimpleSpan,
 };
 
 // MARK: AST
@@ -43,24 +46,6 @@ pub enum StmtInner {
 
     /// Loop block
     Loop(Loop),
-}
-
-/// Parameter declaration
-/// Handle variable declaration for function parameters
-/// The `var` keyword is omitted and a register can be used instead
-#[derive(Debug, Clone, PartialEq)]
-pub enum ParamDecl {
-    /// Declare a variable with a memory location
-    Var(VarDecl),
-
-    /// Use a register directly
-    Register {
-        /// Register to use
-        register: Ident,
-
-        /// Initialize the register with a value
-        init_expr: Option<Box<Expr>>,
-    },
 }
 
 /// Variable declaration.
@@ -134,22 +119,6 @@ impl VarStorage {
     #[inline]
     pub fn new_at(at: Expr) -> Self {
         Self::At(Box::new(at))
-    }
-}
-
-/// Block specifying where to store a bunch of variables
-#[derive(Debug, Clone, PartialEq)]
-pub struct InBank {
-    /// Set of variables to declare in the given bank
-    pub variables: Box<[VarDecl]>,
-}
-
-impl InBank {
-    #[inline]
-    pub fn new(vars: Vec<VarDecl>) -> Self {
-        Self {
-            variables: vars.into_boxed_slice(),
-        }
     }
 }
 
@@ -360,8 +329,9 @@ where
             .boxed();
         let loop_stmt = parser_loop(block).map(|s| StmtInner::Loop(s)).boxed();
         let var_decl = parser_var_decl().map(|s| StmtInner::Var(s)).boxed();
+        let bank = parser_in_bank().map(StmtInner::Bank).boxed();
 
-        let statement = var_decl.or(if_else).or(loop_stmt);
+        let statement = bank.or(var_decl).or(if_else).or(loop_stmt);
         select! { Token::Label(label) => label }
             .then_ignore(just(Token::Colon))
             .or_not()

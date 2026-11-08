@@ -9,3 +9,6 @@ pub mod expression;
 
 /// Parser for statements
 pub mod statement;
+
+/// Parser for function header
+pub mod function;
