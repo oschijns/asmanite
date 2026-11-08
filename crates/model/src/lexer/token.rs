@@ -35,6 +35,18 @@ pub enum Token {
     #[token("::")]
     PathSep,
 
+    /// Arrow for function's return type
+    #[token("->")]
+    Arrow,
+
+    /// Fat-arrow for switch statements
+    #[token("=>")]
+    FatArrow,
+
+    /// Anonymous identifier
+    #[token("_", priority = 10)]
+    Anonymous,
+
     /// Semi-Colon
     #[token(";")]
     Semicolon,
@@ -161,6 +173,10 @@ pub enum Token {
     /// Conditional branching
     #[token("else")]
     Else,
+
+    /// Switch statement
+    #[token("switch")]
+    Switch,
 
     /// Infinite loop
     #[token("loop")]

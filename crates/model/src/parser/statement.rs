@@ -41,8 +41,14 @@ pub enum StmtInner {
     /// Variable declaration
     Var(VarDecl),
 
+    /// Simple instruction
+    Instr(Box<Expr>),
+
     /// If-else chain
     If(IfElse),
+
+    /// Switch statement
+    Switch(Switch),
 
     /// Loop block
     Loop(Loop),
@@ -327,11 +333,14 @@ where
         let if_else = parser_if_else(block.clone())
             .map(|s| StmtInner::If(s))
             .boxed();
-        let loop_stmt = parser_loop(block).map(|s| StmtInner::Loop(s)).boxed();
+        let loop_stmt = parser_loop(block.clone())
+            .map(|s| StmtInner::Loop(s))
+            .boxed();
+        let switch_stmt = parser_switch(block).map(StmtInner::Switch).boxed();
         let var_decl = parser_var_decl().map(|s| StmtInner::Var(s)).boxed();
         let bank = parser_in_bank().map(StmtInner::Bank).boxed();
 
-        let statement = bank.or(var_decl).or(if_else).or(loop_stmt);
+        let statement = bank.or(var_decl).or(if_else).or(loop_stmt).or(switch_stmt);
         select! { Token::Label(label) => label }
             .then_ignore(just(Token::Colon))
             .or_not()
@@ -424,6 +433,39 @@ where
                 branches.push(else_branch);
             }
             IfElse::new(branches)
+        })
+}
+
+/// Parse a switch statement with braced case bodies.
+pub fn parser_switch<'tok, 'src: 'tok, I, B>(
+    block: B,
+) -> impl Parser<'tok, I, Switch, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+    B: Parser<'tok, I, Vec<Statement>, extra::Err<Rich<'tok, Token>>> + Clone + 'tok,
+{
+    let case = parser_expr(false)
+        .then_ignore(just(Token::FatArrow))
+        .then(block.clone())
+        .map(|(value, block)| Branching::new(value, block));
+    let default_case = just(Token::Anonymous)
+        .ignore_then(just(Token::FatArrow))
+        .ignore_then(block);
+
+    just(Token::Switch)
+        .ignore_then(parser_expr(true))
+        .then(
+            case.repeated()
+                .at_least(1)
+                .collect::<Vec<_>>()
+                .then(default_case.or_not())
+                .delimited_by(just(BRACE_OPEN), just(BRACE_CLOSE)),
+        )
+        .map(|(variable, (mut cases, default_case))| {
+            if let Some(block) = default_case {
+                cases.push(Branching::new_else(block));
+            }
+            Switch::new(variable, cases)
         })
 }
 
@@ -759,6 +801,45 @@ else                 { var third:  u8; }
         assert!(matches!(conditional.inner, StmtInner::If(_)));
 
         assert_eq!(parse_statement("loop { }").label, None);
+    }
+
+    #[test]
+    fn parses_switch_cases_and_default_case() {
+        let statement = parse_statement(
+            "switch value { 0 => { var zero: u8; } 1 => { } _ => { var other: u8; } }",
+        );
+        let StmtInner::Switch(switch) = statement.inner else {
+            panic!("expected switch statement");
+        };
+
+        assert_eq!(
+            *switch.variable,
+            Expr::Var(crate::parser::path::Path::new(&["value"]))
+        );
+        assert_eq!(switch.cases.len(), 3);
+        assert_eq!(
+            switch.cases[0].condition,
+            Some(Box::new(Expr::Lit(Literal::Int(IntLit(0)))))
+        );
+        assert_eq!(
+            switch.cases[1].condition,
+            Some(Box::new(Expr::Lit(Literal::Int(IntLit(1)))))
+        );
+        assert!(switch.cases[2].condition.is_none());
+        assert!(matches!(switch.cases[0].block[0].inner, StmtInner::Var(_)));
+        assert!(switch.cases[1].block.is_empty());
+        assert!(matches!(switch.cases[2].block[0].inner, StmtInner::Var(_)));
+    }
+
+    #[test]
+    fn parses_switch_without_default_case() {
+        let statement = parse_statement("switch value { 0 => { } 1 => { } }");
+        let StmtInner::Switch(switch) = statement.inner else {
+            panic!("expected switch statement");
+        };
+
+        assert_eq!(switch.cases.len(), 2);
+        assert!(switch.cases.iter().all(|case| case.condition.is_some()));
     }
 
     #[test]
