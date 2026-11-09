@@ -2,7 +2,7 @@ use crate::{
     lexer::{atom::*, token::Token},
     parser::{
         expression::{Expr, parser_expr},
-        memory::{InBank, MemStorage, VarDecl, parser_in_bank, parser_var_decl},
+        memory::{InBank, ParamType, VarDecl, parser_in_bank, parser_param_type, parser_var_decl},
     },
 };
 use chumsky::{
@@ -209,7 +209,7 @@ impl WhileLoopHeader {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ForLoopHeader {
     /// Define the iterator used
-    pub iter: ForLoopIterDecl,
+    pub iter: ParamType,
 
     /// Type of range
     pub range: Range,
@@ -228,7 +228,7 @@ pub struct ForLoopHeader {
 impl ForLoopHeader {
     // Create a new for loop header
     #[inline]
-    pub fn new(iter: ForLoopIterDecl, range: Range, start: Expr, end: Expr) -> Self {
+    pub fn new(iter: ParamType, range: Range, start: Expr, end: Expr) -> Self {
         Self {
             iter,
             range,
@@ -244,26 +244,6 @@ impl ForLoopHeader {
         self.step = Some(Box::new(step));
         self
     }
-}
-
-/// Iterator declaration for for-loop
-#[derive(Debug, Clone, PartialEq)]
-pub enum ForLoopIterDecl {
-    /// Declare a variable with a memory location
-    Var {
-        /// Identifier of the variable
-        ident: Ident,
-
-        // TODO: for now we are onyl supporting primitives
-        /// Type of the variable
-        var_type: Primitive,
-
-        /// Storage location for the variable
-        storage: MemStorage,
-    },
-
-    /// Use a register directly
-    Register { register: Ident },
 }
 
 /// Loop control instruction
@@ -515,10 +495,12 @@ where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
     B: Parser<'tok, I, Vec<Statement>, extra::Err<Rich<'tok, Token>>> + Clone + 'tok,
 {
+    // simple infinite loop
     let infinite = just(Token::Loop)
         .ignore_then(block.clone())
         .map(|block| Loop::new(LoopType::Loop, block));
 
+    // while loop
     let while_loop = just(Token::While)
         .ignore_then(parser_expr(true))
         .then(block.clone())
@@ -527,6 +509,7 @@ where
             Loop::new(LoopType::While(header), block)
         });
 
+    // do-while loop
     let do_while_loop = just(Token::Do)
         .ignore_then(block.clone())
         .then_ignore(just(Token::While))
@@ -537,32 +520,13 @@ where
             Loop::new(LoopType::While(header), block)
         });
 
-    let storage = just(Token::In)
-        .ignore_then(select! { Token::Ident(ident) => MemStorage::In(ident) })
-        .or(just(Token::At)
-            .ignore_then(parser_expr(false))
-            .map(|expr| MemStorage::At(Box::new(expr))))
-        .or_not()
-        .map(Option::unwrap_or_default);
-
-    let variable_iterator = select! { Token::Ident(ident) => ident }
-        .then_ignore(just(Token::Colon))
-        .then(select! { Token::Primitive(var_type) => var_type })
-        .then(storage)
-        .map(|((ident, var_type), storage)| ForLoopIterDecl::Var {
-            ident,
-            var_type,
-            storage,
-        });
-    let register_iterator =
-        select! { Token::Ident(register) => ForLoopIterDecl::Register { register } };
-    let for_iterator = variable_iterator.or(register_iterator);
+    // for loop
+    let for_iterator = parser_param_type();
     let for_range = parser_expr(false)
         .then(select! { Token::Range(range) => range })
         .then(parser_expr(false))
         .map(|((start, range), end)| (start, range, end));
     let for_step = just(Token::Step).ignore_then(parser_expr(false)).or_not();
-
     let for_loop = just(Token::For)
         .ignore_then(for_iterator)
         .then_ignore(just(Token::Of))
@@ -637,7 +601,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{lexer::token::Token, parser::expression::AssignOp};
+    use crate::{
+        lexer::token::Token,
+        parser::{
+            expression::AssignOp,
+            memory::{MemStorage, ParamMem},
+        },
+    };
     use chumsky::input::{Input, Stream};
     use logos::Logos;
 
@@ -1006,16 +976,16 @@ else                 { var third:  u8; }
             panic!("expected for loop");
         };
 
-        let ForLoopIterDecl::Var {
+        let ParamType::Memory(ParamMem {
             ident,
-            var_type,
+            type_used,
             storage,
-        } = header.iter
+        }) = header.iter
         else {
             panic!("expected variable iterator");
         };
         assert_eq!(ident, Ident::new("i"));
-        assert_eq!(var_type, primitive::U8);
+        assert_eq!(type_used.primitive, primitive::U8);
         assert_eq!(storage, MemStorage::In(Ident::new("zeropage")));
         assert_eq!(header.range, Range::excl());
         assert_eq!(*header.start, Expr::Lit(Literal::Int(IntLit(0))));
@@ -1030,11 +1000,11 @@ else                 { var third:  u8; }
             panic!("expected for loop");
         };
 
-        let ForLoopIterDecl::Var {
+        let ParamType::Memory(ParamMem {
             ident,
-            var_type,
+            type_used,
             storage,
-        } = header.iter
+        }) = header.iter
         else {
             panic!("expected variable iterator");
         };
@@ -1043,7 +1013,7 @@ else                 { var third:  u8; }
             MemStorage::At(Box::new(Expr::Lit(Literal::Int(IntLit(256)))))
         );
         assert_eq!(ident, Ident::new("i"));
-        assert_eq!(var_type, primitive::U8);
+        assert_eq!(type_used.primitive, primitive::U8);
         assert_eq!(header.range, Range::incl());
         assert_eq!(*header.start, Expr::Lit(Literal::Int(IntLit(10))));
         assert_eq!(*header.end, Expr::Lit(Literal::Int(IntLit(100))));
@@ -1060,11 +1030,6 @@ else                 { var third:  u8; }
             panic!("expected for loop");
         };
 
-        assert_eq!(
-            header.iter,
-            ForLoopIterDecl::Register {
-                register: Ident::new("A")
-            }
-        );
+        assert_eq!(header.iter, ParamType::Register(Ident::new("A")));
     }
 }

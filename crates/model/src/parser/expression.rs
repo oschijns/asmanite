@@ -318,9 +318,8 @@ fn gen_op_bitmasks() -> HashMap<(Associativity, Precedence), u64> {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::path::Path;
-
     use super::*;
+    use crate::parser::path::Path;
     use chumsky::input::{Input, Stream};
     use logos::Logos;
 

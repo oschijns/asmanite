@@ -131,6 +131,7 @@ impl ParamDecl {
 }
 
 /// Parameter is either bound to a memory location or to a register
+/// Note: used in for-loop to declare the iterator
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParamType {
     /// Parameter is bounded to a memory location
@@ -169,7 +170,7 @@ impl ParamMem {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ReturnType {
     /// Parameter is bounded to a memory location
-    Memory(ParamMem),
+    Memory(ReturnMem),
 
     /// Parameter is bounded to a register
     Register(Ident),
@@ -224,18 +225,6 @@ pub fn parser_var_decl<'tok, 'src: 'tok, I>()
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
-    // Where to place the variable ?
-    // - unspecified
-    // - in a given bank
-    // - at a specific address
-    let storage = just(Token::In)
-        .ignore_then(select! { Token::Ident(ident) => MemStorage::In(ident) })
-        .or(just(Token::At)
-            .ignore_then(parser_expr(false))
-            .map(|expr| MemStorage::At(Box::new(expr))))
-        .or_not()
-        .map(Option::unwrap_or_default);
-
     // Parse a type usage
     let type_used = parser_type_used();
 
@@ -247,7 +236,7 @@ where
         .then(select! { Token::Ident(ident) => ident })
         .then_ignore(just(Token::Colon))
         .then(type_used)
-        .then(storage)
+        .then(parser_mem_storage())
         .then(
             just(Token::Assign(Assign::new()))
                 .ignore_then(parser_expr(true))
@@ -263,6 +252,70 @@ where
         })
 }
 
+/// Parse a parameter's type, either a named memory parameter or a register.
+pub fn parser_param_type<'tok, 'src: 'tok, I>()
+-> impl Parser<'tok, I, ParamType, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    let memory = select! { Token::Ident(ident) => ident }
+        .then_ignore(just(Token::Colon))
+        .then(parser_type_used())
+        .then(parser_mem_storage())
+        .map(|((ident, type_used), storage)| {
+            ParamType::Memory(ParamMem::new(ident, type_used, storage))
+        });
+
+    memory.or(select! { Token::Ident(register) => ParamType::Register(register) })
+}
+
+/// Parse a parameter declaration, optionally initialized with a default value.
+pub fn parser_param_decl<'tok, 'src: 'tok, I>()
+-> impl Parser<'tok, I, ParamDecl, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    parser_param_type()
+        .then(
+            just(Token::Assign(Assign::new()))
+                .ignore_then(parser_expr(true))
+                .or_not(),
+        )
+        .map(|(param_type, default_value)| {
+            let mut declaration = ParamDecl::new(param_type);
+            declaration.default_value = default_value.map(Box::new);
+            declaration
+        })
+}
+
+/// Parse a return type, either a memory location or a register.
+pub fn parser_return_type<'tok, 'src: 'tok, I>()
+-> impl Parser<'tok, I, ReturnType, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    let memory = parser_type_used()
+        .then(parser_mem_storage())
+        .map(|(type_used, storage)| ReturnType::Memory(ReturnMem::new(type_used, storage)));
+
+    memory.or(select! { Token::Ident(register) => ReturnType::Register(register) })
+}
+
+/// Parse an optional memory placement clause.
+fn parser_mem_storage<'tok, 'src: 'tok, I>()
+-> impl Parser<'tok, I, MemStorage, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    just(Token::In)
+        .ignore_then(select! { Token::Ident(ident) => MemStorage::In(ident) })
+        .or(just(Token::At)
+            .ignore_then(parser_expr(false))
+            .map(MemStorage::new_at))
+        .or_not()
+        .map(Option::unwrap_or_default)
+}
+
 // MARK: Tests
 
 #[cfg(test)]
@@ -274,6 +327,17 @@ mod tests {
     };
     use chumsky::input::{Input as _, Stream};
     use logos::Logos as _;
+
+    fn token_input(
+        source: &str,
+    ) -> impl chumsky::input::ValueInput<'static, Token = Token, Span = chumsky::span::SimpleSpan>
+    {
+        let tokens: Vec<_> = Token::lexer(source)
+            .spanned()
+            .map(|(token, span)| (token.expect("test source should lex"), span.into()))
+            .collect();
+        Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span))
+    }
 
     fn parse_statement(source: &str) -> Statement {
         let tokens = Token::lexer(source)
@@ -306,5 +370,97 @@ mod tests {
                 .iter()
                 .all(|variable| variable.type_used.primitive == primitive::U8)
         );
+    }
+
+    #[test]
+    fn parses_memory_and_register_parameter_declarations() {
+        let named = parser_param_decl()
+            .parse(token_input("toto: u8 in zeropage"))
+            .into_result()
+            .expect("memory parameter should parse");
+        assert_eq!(
+            named.param_type,
+            ParamType::Memory(ParamMem::new(
+                Ident::new("toto"),
+                TypeUsed {
+                    primitive: primitive::U8
+                },
+                MemStorage::In(Ident::new("zeropage")),
+            ))
+        );
+        assert_eq!(named.default_value, None);
+
+        let fixed = parser_param_decl()
+            .parse(token_input("tata: u8 at 0x1000 = 50"))
+            .into_result()
+            .expect("initialized memory parameter should parse");
+        let ParamType::Memory(memory) = fixed.param_type else {
+            panic!("expected memory parameter");
+        };
+        assert_eq!(memory.ident, Ident::new("tata"));
+        assert_eq!(memory.type_used.primitive, primitive::U8);
+        assert!(matches!(memory.storage, MemStorage::At(_)));
+        assert_eq!(
+            fixed.default_value,
+            Some(Box::new(Expr::Lit(Literal::Int(IntLit(50)))))
+        );
+
+        let register = parser_param_decl()
+            .parse(token_input("a = 20"))
+            .into_result()
+            .expect("initialized register parameter should parse");
+        assert_eq!(register.param_type, ParamType::Register(Ident::new("a")));
+        assert_eq!(
+            register.default_value,
+            Some(Box::new(Expr::Lit(Literal::Int(IntLit(20)))))
+        );
+
+        let register = parser_param_decl()
+            .parse(token_input("x"))
+            .into_result()
+            .expect("register parameter should parse");
+        assert_eq!(register.param_type, ParamType::Register(Ident::new("x")));
+        assert_eq!(register.default_value, None);
+    }
+
+    #[test]
+    fn parses_memory_and_register_return_types() {
+        let banked = parser_return_type()
+            .parse(token_input("u8 in zeropage"))
+            .into_result()
+            .expect("banked return type should parse");
+        assert_eq!(
+            banked,
+            ReturnType::Memory(ReturnMem::new(
+                TypeUsed {
+                    primitive: primitive::U8
+                },
+                MemStorage::In(Ident::new("zeropage")),
+            ))
+        );
+
+        let fixed = parser_return_type()
+            .parse(token_input("u8 at 0x0100"))
+            .into_result()
+            .expect("fixed return type should parse");
+        assert!(matches!(
+            fixed,
+            ReturnType::Memory(ReturnMem {
+                type_used: TypeUsed {
+                    primitive: primitive::U8
+                },
+                storage: MemStorage::At(_)
+            })
+        ));
+
+        for register in ["a", "x"] {
+            assert_eq!(
+                parser_return_type()
+                    .parse(token_input(register))
+                    .into_result()
+                    .expect("register return type should parse"),
+                ReturnType::Register(Ident::new(register))
+            );
+        }
     }
 }
