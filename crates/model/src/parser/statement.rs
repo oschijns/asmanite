@@ -55,6 +55,12 @@ pub enum StmtInner {
 
     /// Break or continue instruction
     LoopCtrl(LoopCtrl),
+
+    /// Goto statement
+    Goto(Goto),
+
+    /// Return statement
+    Return(Return),
 }
 
 /// Variable declaration.
@@ -392,13 +398,17 @@ where
         let var_decl = parser_var_decl().map(|s| StmtInner::Var(s)).boxed();
         let bank = parser_in_bank().map(StmtInner::Bank).boxed();
         let loop_ctrl = parser_loop_ctrl().map(StmtInner::LoopCtrl).boxed();
+        let goto = parser_goto().map(StmtInner::Goto).boxed();
+        let return_stmt = parser_return().map(StmtInner::Return).boxed();
 
         let statement = bank
             .or(var_decl)
             .or(if_else)
             .or(loop_stmt)
             .or(switch_stmt)
-            .or(loop_ctrl);
+            .or(loop_ctrl)
+            .or(goto)
+            .or(return_stmt);
         select! { Token::Label(label) => label }
             .then_ignore(just(Token::Colon))
             .or_not()
@@ -421,6 +431,33 @@ where
         .then(select! { Token::Label(label) => label }.or_not())
         .then_ignore(just(Token::Semicolon))
         .map(|(ctrl_type, label)| LoopCtrl { ctrl_type, label })
+}
+
+/// Parse a goto statement, which must target a label.
+pub fn parser_goto<'tok, 'src: 'tok, I>()
+-> impl Parser<'tok, I, Goto, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    just(Token::Goto)
+        .ignore_then(select! { Token::Label(label) => label })
+        .then_ignore(just(Token::Semicolon))
+        .map(|label| Goto { label })
+}
+
+/// Parse a return statement with an optional value expression.
+pub fn parser_return<'tok, 'src: 'tok, I>()
+-> impl Parser<'tok, I, Return, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    just(Token::Return)
+        .ignore_then(parser_expr(true).or_not())
+        .then_ignore(just(Token::Semicolon))
+        .map(|value| match value {
+            Some(value) => Return::with_value(value),
+            None => Return::new(),
+        })
 }
 
 /// Parse a variable, static, or constant declaration.
@@ -900,6 +937,43 @@ else                 { var third:  u8; }
                 StmtInner::LoopCtrl(LoopCtrl { ctrl_type, label })
             );
         }
+    }
+
+    #[test]
+    fn parses_goto_with_required_target_label() {
+        let statement = parse_statement("goto 'target;");
+        assert_eq!(
+            statement.inner,
+            StmtInner::Goto(Goto {
+                label: Label("target".into())
+            })
+        );
+
+        let tokens = Token::lexer("goto;")
+            .spanned()
+            .map(|(token, span)| (token.expect("test source should lex"), span.into()));
+        let input =
+            Stream::from_iter(tokens).map((0.."goto;".len()).into(), |(token, span)| (token, span));
+        assert!(parser_statement().parse(input).has_errors());
+    }
+
+    #[test]
+    fn parses_return_with_or_without_value() {
+        assert_eq!(
+            parse_statement("return;").inner,
+            StmtInner::Return(Return::new())
+        );
+
+        assert_eq!(
+            parse_statement("return result + 1;").inner,
+            StmtInner::Return(Return::with_value(Expr::Binary(
+                crate::parser::expression::BinaryOp::new(
+                    crate::lexer::atom::operator::ADD,
+                    Expr::Var(crate::parser::path::Path::new(&["result"])),
+                    Expr::Lit(Literal::Int(IntLit(1))),
+                )
+            )))
+        );
     }
 
     #[test]
