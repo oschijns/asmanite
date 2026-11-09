@@ -42,7 +42,10 @@ pub enum StmtInner {
     Var(VarDecl),
 
     /// Simple instruction
-    Instr(Box<Expr>),
+    Instr(Instr),
+
+    /// Defer block
+    Defer(Defer),
 
     /// If-else chain
     If(IfElse),
@@ -135,6 +138,20 @@ impl VarStorage {
     pub fn new_at(at: Expr) -> Self {
         Self::At(Box::new(at))
     }
+}
+
+/// Simple instruction
+#[derive(Debug, Clone, PartialEq)]
+pub struct Instr {
+    /// Expression to evaluate as an instruction
+    pub expr: Box<Expr>,
+}
+
+/// Defer block
+#[derive(Debug, Clone, PartialEq)]
+pub struct Defer {
+    /// Block of code to execute when the current scope is exited
+    pub block: Box<[Statement]>,
 }
 
 /// If-else branching chain
@@ -388,15 +405,17 @@ where
 {
     recursive(|statement| {
         let block = parser_block(statement).boxed();
+        let var_decl = parser_var_decl().map(|s| StmtInner::Var(s)).boxed();
+        let bank = parser_in_bank().map(StmtInner::Bank).boxed();
+        let instr = parser_instr().map(StmtInner::Instr).boxed();
+        let defer = parser_defer(block.clone()).map(StmtInner::Defer).boxed();
         let if_else = parser_if_else(block.clone())
             .map(|s| StmtInner::If(s))
             .boxed();
         let loop_stmt = parser_loop(block.clone())
             .map(|s| StmtInner::Loop(s))
             .boxed();
-        let switch_stmt = parser_switch(block).map(StmtInner::Switch).boxed();
-        let var_decl = parser_var_decl().map(|s| StmtInner::Var(s)).boxed();
-        let bank = parser_in_bank().map(StmtInner::Bank).boxed();
+        let switch = parser_switch(block).map(StmtInner::Switch).boxed();
         let loop_ctrl = parser_loop_ctrl().map(StmtInner::LoopCtrl).boxed();
         let goto = parser_goto().map(StmtInner::Goto).boxed();
         let return_stmt = parser_return().map(StmtInner::Return).boxed();
@@ -405,10 +424,12 @@ where
             .or(var_decl)
             .or(if_else)
             .or(loop_stmt)
-            .or(switch_stmt)
+            .or(switch)
             .or(loop_ctrl)
             .or(goto)
-            .or(return_stmt);
+            .or(return_stmt)
+            .or(defer)
+            .or(instr);
         select! { Token::Label(label) => label }
             .then_ignore(just(Token::Colon))
             .or_not()
@@ -458,6 +479,32 @@ where
             Some(value) => Return::with_value(value),
             None => Return::new(),
         })
+}
+
+/// Parse a simple expression instruction terminated by a semicolon.
+pub fn parser_instr<'tok, 'src: 'tok, I>()
+-> impl Parser<'tok, I, Instr, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    parser_expr(true)
+        .then_ignore(just(Token::Semicolon))
+        .map(|expr| Instr {
+            expr: Box::new(expr),
+        })
+}
+
+/// Parse a defer block, which executes its statements when the current scope exits.
+pub fn parser_defer<'tok, 'src: 'tok, I, B>(
+    block: B,
+) -> impl Parser<'tok, I, Defer, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+    B: Parser<'tok, I, Vec<Statement>, extra::Err<Rich<'tok, Token>>> + 'tok,
+{
+    just(Token::Defer).ignore_then(block).map(|block| Defer {
+        block: block.into_boxed_slice(),
+    })
 }
 
 /// Parse a variable, static, or constant declaration.
@@ -974,6 +1021,41 @@ else                 { var third:  u8; }
                 )
             )))
         );
+    }
+
+    #[test]
+    fn parses_simple_expression_instructions() {
+        let statement = parse_statement("a = 10;");
+        let StmtInner::Instr(instr) = statement.inner else {
+            panic!("expected instruction statement");
+        };
+        assert_eq!(
+            *instr.expr,
+            Expr::Assign(AssignOp::new(
+                Assign::new(),
+                Expr::Var(crate::parser::path::Path::new(&["a"])),
+                Expr::Lit(Literal::Int(IntLit(10))),
+            ))
+        );
+    }
+
+    #[test]
+    fn parses_defer_blocks_with_nested_statements() {
+        let statement = parse_statement("defer { a = 10; b = 20; }");
+        let StmtInner::Defer(defer) = statement.inner else {
+            panic!("expected defer statement");
+        };
+
+        assert_eq!(defer.block.len(), 2);
+        assert!(matches!(defer.block[0].inner, StmtInner::Instr(_)));
+        assert!(matches!(defer.block[1].inner, StmtInner::Instr(_)));
+
+        let tokens = Token::lexer("defer;")
+            .spanned()
+            .map(|(token, span)| (token.expect("test source should lex"), span.into()));
+        let input = Stream::from_iter(tokens)
+            .map((0.."defer;".len()).into(), |(token, span)| (token, span));
+        assert!(parser_statement().parse(input).has_errors());
     }
 
     #[test]
