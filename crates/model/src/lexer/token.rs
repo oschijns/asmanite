@@ -146,11 +146,11 @@ pub enum Token {
     //#[token("@")]
     //Address,
     /// Declare a variable/constant
-    #[token("var"   , |_| VarDeclType::Var   )]
-    #[token("let"   , |_| VarDeclType::Let   )]
-    #[token("static", |_| VarDeclType::Static)]
-    #[token("const" , |_| VarDeclType::Const )]
-    VarDecl(VarDeclType),
+    #[token("var"   , |_| VarType::Var   )]
+    #[token("let"   , |_| VarType::Let   )]
+    #[token("static", |_| VarType::Static)]
+    #[token("const" , |_| VarType::Const )]
+    VarDecl(VarType),
 
     /// Declare a variable/constant
     #[token("struct", |_| TypeDef::Struct)]

@@ -1,0 +1,310 @@
+use crate::{
+    lexer::{atom::*, token::Token},
+    parser::{
+        composite_type::{TypeUsed, parser_type_used},
+        expression::{Expr, parser_expr},
+    },
+};
+use chumsky::{
+    IterParser as _, Parser, error::Rich, extra, input::ValueInput, primitive::just, select,
+    span::SimpleSpan,
+};
+
+// MARK: AST
+
+/// Block specifying where to store a bunch of variables
+#[derive(Debug, Clone, PartialEq)]
+pub struct InBank {
+    /// Bank identifier
+    pub ident: Ident,
+
+    /// Set of variables to declare in the given bank
+    pub variables: Box<[VarDecl]>,
+}
+
+impl InBank {
+    #[inline]
+    pub fn new(ident: Ident, vars: Vec<VarDecl>) -> Self {
+        Self {
+            ident,
+            variables: vars.into_boxed_slice(),
+        }
+    }
+}
+
+/// Specify where to store the variable
+#[derive(Debug, Default, Clone, PartialEq)]
+pub enum MemStorage {
+    /// If unspecified, the variable will fallback to the parent's scope bank.
+    #[default]
+    Undefined,
+
+    /// Find an available memory location in the given bank.
+    In(Ident),
+
+    /// Fixed address for the variable.
+    /// Provided address must be solvable at compile-time.
+    At(Box<Expr>),
+}
+
+impl MemStorage {
+    /// Create "at" variant of the variable storage
+    #[inline]
+    pub fn new_at(at: Expr) -> Self {
+        Self::At(Box::new(at))
+    }
+}
+
+/// Variable declaration.
+/// This structure can be used in various context:
+/// - Outside of functions for constants and static variables
+/// - Inside of functions' bodies
+/// - As function parameters (`decl_type` is then omitted)
+#[derive(Debug, Clone, PartialEq)]
+pub struct VarDecl {
+    /// Type of variable declaration
+    pub var_type: VarType,
+
+    /// Identifier of the variable
+    pub ident: Ident,
+
+    /// Type of the variable
+    pub type_used: TypeUsed,
+
+    /// Storage location for the variable
+    pub storage: MemStorage,
+
+    /// Assign a value to the variable when declaring it.
+    /// Note: Only regular assignments (`=`) are allowed here.
+    pub assign_expr: Option<Box<Expr>>,
+}
+
+impl VarDecl {
+    /// Construct the variable declaration
+    #[inline]
+    pub fn new(var_type: VarType, ident: Ident, type_used: TypeUsed, storage: MemStorage) -> Self {
+        Self {
+            var_type,
+            ident,
+            type_used,
+            storage,
+            assign_expr: None,
+        }
+    }
+
+    /// Add the assignment expression
+    #[inline]
+    pub fn with_assign(&mut self, assign: Expr) -> &Self {
+        self.assign_expr = Some(Box::new(assign));
+        self
+    }
+}
+
+/// Parameter declaration
+/// Handle variable declaration for function parameters
+/// The `var` keyword is omitted and a register can be used instead
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParamDecl {
+    /// Type of parameter (either variable or register)
+    pub param_type: ParamType,
+
+    /// Initialize the parameter with a default value if none provided
+    pub default_value: Option<Box<Expr>>,
+}
+
+impl ParamDecl {
+    /// Create a parameter
+    #[inline]
+    pub fn new(param_type: ParamType) -> Self {
+        Self {
+            param_type,
+            default_value: None,
+        }
+    }
+
+    /// Add initializer expression
+    #[inline]
+    pub fn with_default(&mut self, default: Expr) -> &Self {
+        self.default_value = Some(Box::new(default));
+        self
+    }
+}
+
+/// Parameter is either bound to a memory location or to a register
+#[derive(Debug, Clone, PartialEq)]
+pub enum ParamType {
+    /// Parameter is bounded to a memory location
+    Memory(ParamMem),
+
+    /// Parameter is bounded to a register
+    Register(Ident),
+}
+
+/// Parameter bounded to a memory location
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParamMem {
+    /// Identifier of the variable
+    pub ident: Ident,
+
+    /// Type of the variable
+    pub type_used: TypeUsed,
+
+    /// Storage location for the variable
+    pub storage: MemStorage,
+}
+
+impl ParamMem {
+    /// Construct a parameter bound to a memory location
+    #[inline]
+    pub fn new(ident: Ident, type_used: TypeUsed, storage: MemStorage) -> Self {
+        Self {
+            ident,
+            type_used,
+            storage,
+        }
+    }
+}
+
+/// Return type is either bound to a memory location or to a register
+#[derive(Debug, Clone, PartialEq)]
+pub enum ReturnType {
+    /// Parameter is bounded to a memory location
+    Memory(ParamMem),
+
+    /// Parameter is bounded to a register
+    Register(Ident),
+}
+
+/// Return type bounded to a memory location
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReturnMem {
+    /// Type of the variable
+    pub type_used: TypeUsed,
+
+    /// Storage location for the variable
+    pub storage: MemStorage,
+}
+
+impl ReturnMem {
+    /// Construct a parameter bound to a memory location
+    #[inline]
+    pub fn new(type_used: TypeUsed, storage: MemStorage) -> Self {
+        Self { type_used, storage }
+    }
+}
+
+// MARK: Parsers
+
+/// Open brace token
+const BRACE_OPEN: Token = Token::Delimiter(delimiter::BRACE_OPEN);
+
+/// Close brace token
+const BRACE_CLOSE: Token = Token::Delimiter(delimiter::BRACE_CLOSE);
+
+/// Parse a bank block containing variable declarations.
+pub fn parser_in_bank<'tok, 'src: 'tok, I>()
+-> impl Parser<'tok, I, InBank, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    just(Token::In)
+        .ignore_then(select! { Token::Ident(ident) => ident })
+        .then(
+            parser_var_decl()
+                .repeated()
+                .collect::<Vec<_>>()
+                .delimited_by(just(BRACE_OPEN), just(BRACE_CLOSE)),
+        )
+        .map(|(ident, variables)| InBank::new(ident, variables))
+}
+
+/// Parse a variable, static, or constant declaration.
+pub fn parser_var_decl<'tok, 'src: 'tok, I>()
+-> impl Parser<'tok, I, VarDecl, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    // Where to place the variable ?
+    // - unspecified
+    // - in a given bank
+    // - at a specific address
+    let storage = just(Token::In)
+        .ignore_then(select! { Token::Ident(ident) => MemStorage::In(ident) })
+        .or(just(Token::At)
+            .ignore_then(parser_expr(false))
+            .map(|expr| MemStorage::At(Box::new(expr))))
+        .or_not()
+        .map(Option::unwrap_or_default);
+
+    // Parse a type usage
+    let type_used = parser_type_used();
+
+    // Type of variable declared (var, static, const)
+    // followed by its identifier and by its type.
+    // Optionnaly, we may specify where the variable
+    // is stored and a value at initialization.
+    select! { Token::VarDecl(decl_type) => decl_type }
+        .then(select! { Token::Ident(ident) => ident })
+        .then_ignore(just(Token::Colon))
+        .then(type_used)
+        .then(storage)
+        .then(
+            just(Token::Assign(Assign::new()))
+                .ignore_then(parser_expr(true))
+                .or_not(),
+        )
+        .then_ignore(just(Token::Semicolon))
+        .map(|((((decl_type, ident), var_type), storage), assign_expr)| {
+            let mut var = VarDecl::new(decl_type, ident, var_type, storage);
+            if let Some(assign) = assign_expr {
+                var.with_assign(assign);
+            }
+            var
+        })
+}
+
+// MARK: Tests
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        lexer::token::Token,
+        parser::statement::{Statement, StmtInner, parser_statement},
+    };
+    use chumsky::input::{Input as _, Stream};
+    use logos::Logos as _;
+
+    fn parse_statement(source: &str) -> Statement {
+        let tokens = Token::lexer(source)
+            .spanned()
+            .map(|(token, span)| (token.expect("test source should lex"), span.into()));
+        let input =
+            Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
+
+        parser_statement()
+            .parse(input)
+            .into_result()
+            .expect("test source should parse")
+    }
+
+    #[test]
+    fn parses_in_bank_variable_block_as_statement() {
+        let statement = parse_statement("in my_bank { var a: u8; var b: u8; var c: u8; }");
+
+        assert_eq!(statement.label, None);
+        let StmtInner::Bank(bank) = statement.inner else {
+            panic!("expected in-bank statement");
+        };
+        assert_eq!(bank.ident, Ident::new("my_bank"));
+        assert_eq!(bank.variables.len(), 3);
+        assert_eq!(bank.variables[0].ident, Ident::new("a"));
+        assert_eq!(bank.variables[1].ident, Ident::new("b"));
+        assert_eq!(bank.variables[2].ident, Ident::new("c"));
+        assert!(
+            bank.variables
+                .iter()
+                .all(|variable| variable.type_used.primitive == primitive::U8)
+        );
+    }
+}

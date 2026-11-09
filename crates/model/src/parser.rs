@@ -1,6 +1,9 @@
 /// Parser for module path
 pub mod path;
 
+/// Parsers related to defining memory locations
+pub mod memory;
+
 /// Parser for composite types (struct, enum, union)
 pub mod composite_type;
 

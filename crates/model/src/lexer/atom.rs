@@ -649,7 +649,7 @@ impl fmt::Display for Range {
 /// Declare a variable/constant
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
-pub enum VarDeclType {
+pub enum VarType {
     /// Variable
     #[strum(serialize = "var")]
     Var,
@@ -666,7 +666,7 @@ pub enum VarDeclType {
     #[strum(serialize = "const")]
     Const,
 }
-impl_display!(VarDeclType, str);
+impl_display!(VarType, str);
 
 /// Type definition keyword 'struct', 'enum', 'union'
 #[repr(u8)]

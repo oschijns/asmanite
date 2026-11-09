@@ -2,7 +2,7 @@ use crate::{
     lexer::{atom::*, token::Token},
     parser::{
         expression::{Expr, parser_expr},
-        function::{InBank, parser_in_bank},
+        memory::{InBank, MemStorage, VarDecl, parser_in_bank, parser_var_decl},
     },
 };
 use chumsky::{
@@ -64,80 +64,6 @@ pub enum StmtInner {
 
     /// Return statement
     Return(Return),
-}
-
-/// Variable declaration.
-/// This structure can be used in various context:
-/// - Outside of functions for constants and static variables
-/// - Inside of functions' bodies
-/// - As function parameters (`decl_type` is then omitted)
-#[derive(Debug, Clone, PartialEq)]
-pub struct VarDecl {
-    /// Type of variable declaration
-    pub decl_type: VarDeclType,
-
-    /// Identifier of the variable
-    pub ident: Ident,
-
-    // TODO: for now we are onyl supporting primitives
-    /// Type of the variable
-    pub var_type: Primitive,
-
-    /// Storage location for the variable
-    pub storage: VarStorage,
-
-    /// Assign a value to the variable when declaring it.
-    /// Note: Only regular assignments (`=`) are allowed here.
-    pub assign_expr: Option<Box<Expr>>,
-}
-
-impl VarDecl {
-    /// Construct the variable declaration
-    #[inline]
-    pub fn new(
-        decl_type: VarDeclType,
-        ident: Ident,
-        var_type: Primitive,
-        storage: VarStorage,
-    ) -> Self {
-        Self {
-            decl_type,
-            ident,
-            var_type,
-            storage,
-            assign_expr: None,
-        }
-    }
-
-    /// Add the assignment expression
-    #[inline]
-    pub fn with_assign(&mut self, assign: Expr) -> &Self {
-        self.assign_expr = Some(Box::new(assign));
-        self
-    }
-}
-
-/// Specify where to store the variable
-#[derive(Debug, Default, Clone, PartialEq)]
-pub enum VarStorage {
-    /// If unspecified, the variable will fallback to the parent's scope bank.
-    #[default]
-    Undefined,
-
-    /// Find an available memory location in the given bank.
-    In(Ident),
-
-    /// Fixed address for the variable.
-    /// Provided address must be solvable at compile-time.
-    At(Box<Expr>),
-}
-
-impl VarStorage {
-    /// Create "at" variant of the variable storage
-    #[inline]
-    pub fn new_at(at: Expr) -> Self {
-        Self::At(Box::new(at))
-    }
 }
 
 /// Simple instruction
@@ -333,7 +259,7 @@ pub enum ForLoopIterDecl {
         var_type: Primitive,
 
         /// Storage location for the variable
-        storage: VarStorage,
+        storage: MemStorage,
     },
 
     /// Use a register directly
@@ -368,7 +294,7 @@ pub struct Goto {
 }
 
 /// Return from a function call
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Return {
     pub value: Option<Box<Expr>>,
 }
@@ -405,16 +331,12 @@ where
 {
     recursive(|statement| {
         let block = parser_block(statement).boxed();
-        let var_decl = parser_var_decl().map(|s| StmtInner::Var(s)).boxed();
+        let var_decl = parser_var_decl().map(StmtInner::Var).boxed();
         let bank = parser_in_bank().map(StmtInner::Bank).boxed();
         let instr = parser_instr().map(StmtInner::Instr).boxed();
         let defer = parser_defer(block.clone()).map(StmtInner::Defer).boxed();
-        let if_else = parser_if_else(block.clone())
-            .map(|s| StmtInner::If(s))
-            .boxed();
-        let loop_stmt = parser_loop(block.clone())
-            .map(|s| StmtInner::Loop(s))
-            .boxed();
+        let if_else = parser_if_else(block.clone()).map(StmtInner::If).boxed();
+        let loop_stmt = parser_loop(block.clone()).map(StmtInner::Loop).boxed();
         let switch = parser_switch(block).map(StmtInner::Switch).boxed();
         let loop_ctrl = parser_loop_ctrl().map(StmtInner::LoopCtrl).boxed();
         let goto = parser_goto().map(StmtInner::Goto).boxed();
@@ -507,48 +429,6 @@ where
     })
 }
 
-/// Parse a variable, static, or constant declaration.
-pub fn parser_var_decl<'tok, 'src: 'tok, I>()
--> impl Parser<'tok, I, VarDecl, extra::Err<Rich<'tok, Token>>>
-where
-    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-{
-    // Where to place the variable ?
-    // - unspecified
-    // - in a given bank
-    // - at a specific address
-    let storage = just(Token::In)
-        .ignore_then(select! { Token::Ident(ident) => VarStorage::In(ident) })
-        .or(just(Token::At)
-            .ignore_then(parser_expr(false))
-            .map(|expr| VarStorage::At(Box::new(expr))))
-        .or_not()
-        .map(Option::unwrap_or_default);
-
-    // Type of variable declared (var, static, const)
-    // followed by its identifier and by its type.
-    // Optionnaly, we may specify where the variable
-    // is stored and a value at initialization.
-    select! { Token::VarDecl(decl_type) => decl_type }
-        .then(select! { Token::Ident(ident) => ident })
-        .then_ignore(just(Token::Colon))
-        .then(select! { Token::Primitive(var_type) => var_type })
-        .then(storage)
-        .then(
-            just(Token::Assign(Assign::new()))
-                .ignore_then(parser_expr(true))
-                .or_not(),
-        )
-        .then_ignore(just(Token::Semicolon))
-        .map(|((((decl_type, ident), var_type), storage), assign_expr)| {
-            let mut var = VarDecl::new(decl_type, ident, var_type, storage);
-            if let Some(assign) = assign_expr {
-                var.with_assign(assign);
-            }
-            var
-        })
-}
-
 /// Parse an if-else chain, including nested statements in each block.
 pub fn parser_if_else<'tok, 'src: 'tok, I, B>(
     block: B,
@@ -576,7 +456,7 @@ where
     // else { ... }
     let else_branch = just(Token::Else)
         .ignore_then(block)
-        .map(|block| Branching::new_else(block));
+        .map(Branching::new_else);
 
     // chain the three types of elements
     if_branch
@@ -658,10 +538,10 @@ where
         });
 
     let storage = just(Token::In)
-        .ignore_then(select! { Token::Ident(ident) => VarStorage::In(ident) })
+        .ignore_then(select! { Token::Ident(ident) => MemStorage::In(ident) })
         .or(just(Token::At)
             .ignore_then(parser_expr(false))
-            .map(|expr| VarStorage::At(Box::new(expr))))
+            .map(|expr| MemStorage::At(Box::new(expr))))
         .or_not()
         .map(Option::unwrap_or_default);
 
@@ -857,7 +737,7 @@ mod tests {
 
         assert_eq!(
             declaration.storage,
-            VarStorage::At(Box::new(Expr::Var(crate::parser::path::Path::new(&[
+            MemStorage::At(Box::new(Expr::Var(crate::parser::path::Path::new(&[
                 "ADDRESS"
             ]))))
         );
@@ -873,7 +753,7 @@ mod tests {
 
         assert_eq!(
             declaration.storage,
-            VarStorage::At(Box::new(Expr::Lit(Literal::Int(IntLit(16)))))
+            MemStorage::At(Box::new(Expr::Lit(Literal::Int(IntLit(16)))))
         );
     }
 
@@ -1136,7 +1016,7 @@ else                 { var third:  u8; }
         };
         assert_eq!(ident, Ident::new("i"));
         assert_eq!(var_type, primitive::U8);
-        assert_eq!(storage, VarStorage::In(Ident::new("zeropage")));
+        assert_eq!(storage, MemStorage::In(Ident::new("zeropage")));
         assert_eq!(header.range, Range::excl());
         assert_eq!(*header.start, Expr::Lit(Literal::Int(IntLit(0))));
         assert_eq!(*header.end, Expr::Lit(Literal::Int(IntLit(10))));
@@ -1160,7 +1040,7 @@ else                 { var third:  u8; }
         };
         assert_eq!(
             storage,
-            VarStorage::At(Box::new(Expr::Lit(Literal::Int(IntLit(256)))))
+            MemStorage::At(Box::new(Expr::Lit(Literal::Int(IntLit(256)))))
         );
         assert_eq!(ident, Ident::new("i"));
         assert_eq!(var_type, primitive::U8);
