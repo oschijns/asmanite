@@ -36,51 +36,65 @@ impl InBank {
 /// Handle variable declaration for function parameters
 /// The `var` keyword is omitted and a register can be used instead
 #[derive(Debug, Clone, PartialEq)]
-pub enum ParamDecl {
-    /// Declare a variable with a memory location
-    Var(VarDecl),
+pub struct ParamDecl {
+    /// Type of parameter (either variable or register)
+    pub param_type: ParamType,
 
-    /// Use a register directly
-    Register {
-        /// Register to use
-        register: Ident,
-
-        /// Initialize the register with a value
-        init_expr: Option<Box<Expr>>,
-    },
+    /// Initialize the parameter with a default value if none provided
+    pub default_expr: Option<Box<Expr>>,
 }
 
 impl ParamDecl {
-    /// Create a parameter binded to a memory location
+    /// Create a parameter
     #[inline]
-    pub fn new_var(ident: Ident, var_type: Primitive, storage: VarStorage) -> Self {
-        Self::Var(VarDecl::new(VarDeclType::Var, ident, var_type, storage))
-    }
-
-    /// Create a parameter binded to a register
-    #[inline]
-    pub fn new_reg(register: Ident) -> Self {
-        Self::Register {
-            register,
-            init_expr: None,
+    pub fn new(param_type: ParamType) -> Self {
+        Self {
+            param_type,
+            default_expr: None,
         }
     }
 
     /// Add initializer expression
     #[inline]
-    pub fn with_init(&mut self, init: Expr) -> &Self {
-        match self {
-            Self::Var(var) => {
-                var.with_assign(init);
-            }
-            Self::Register {
-                register: _,
-                init_expr,
-            } => {
-                *init_expr = Some(Box::new(init));
-            }
-        }
+    pub fn with_default(&mut self, default: Expr) -> &Self {
+        self.default_expr = Some(Box::new(default));
         self
+    }
+}
+
+/// Parameter is either bound to a memory location or to a register
+#[derive(Debug, Clone, PartialEq)]
+pub enum ParamType {
+    /// Parameter is bounded to a memory location
+    Var(ParamVar),
+
+    /// Parameter is bounded to a register
+    Register(Ident),
+}
+
+/// Parameter bounded to a memory location
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParamVar {
+    /// Identifier of the variable
+    pub ident: Ident,
+
+    // TODO: for now we are onyl supporting primitives
+    /// Type of the variable
+    pub var_type: Primitive,
+
+    /// Storage location for the variable
+    pub storage: VarStorage,
+}
+
+impl ParamVar {
+    /// Construct a parameter bound to a memory location
+    #[inline]
+    pub fn new(ident: Ident, var_type: Primitive, storage: VarStorage) -> Self {
+        Self {
+            ident,
+            var_type,
+            storage,
+        }
     }
 }
 

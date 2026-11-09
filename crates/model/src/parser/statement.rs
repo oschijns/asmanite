@@ -337,6 +337,35 @@ pub enum LoopCtrlType {
     Continue,
 }
 
+/// Goto jump instruction
+#[derive(Debug, Clone, PartialEq)]
+pub struct Goto {
+    /// Label to jump to
+    pub label: Label,
+}
+
+/// Return from a function call
+#[derive(Debug, Clone, PartialEq)]
+pub struct Return {
+    pub value: Option<Box<Expr>>,
+}
+
+impl Return {
+    /// Return from the function
+    #[inline]
+    pub fn new() -> Self {
+        Self { value: None }
+    }
+
+    /// Return from the function with a value
+    #[inline]
+    pub fn with_value(value: Expr) -> Self {
+        Self {
+            value: Some(Box::new(value)),
+        }
+    }
+}
+
 // MARK: Parsers
 
 /// Open brace token
