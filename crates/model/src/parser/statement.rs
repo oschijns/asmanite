@@ -2,7 +2,11 @@ use crate::{
     lexer::{atom::*, token::Token},
     parser::{
         expression::{Expr, parser_expr},
-        memory::{InBank, ParamType, VarDecl, parser_in_bank, parser_param_type, parser_var_decl},
+        function::parser_function_with_statement,
+        memory::{
+            InBank, ParamType, VarDecl, parser_in_bank_with_function, parser_param_type,
+            parser_var_decl,
+        },
     },
 };
 use chumsky::{
@@ -310,9 +314,11 @@ where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
     recursive(|statement| {
-        let block = parser_block(statement).boxed();
+        let block = parser_block(statement.clone()).boxed();
         let var_decl = parser_var_decl().map(StmtInner::Var).boxed();
-        let bank = parser_in_bank().map(StmtInner::Bank).boxed();
+        let bank = parser_in_bank_with_function(parser_function_with_statement(statement.clone()))
+            .map(StmtInner::Bank)
+            .boxed();
         let instr = parser_instr().map(StmtInner::Instr).boxed();
         let defer = parser_defer(block.clone()).map(StmtInner::Defer).boxed();
         let if_else = parser_if_else(block.clone()).map(StmtInner::If).boxed();

@@ -3,6 +3,7 @@ use crate::{
     parser::{
         composite_type::{TypeUsed, parser_type_used},
         expression::{Expr, parser_expr},
+        function::{FuncDecl, parser_function},
     },
 };
 use chumsky::{
@@ -18,18 +19,30 @@ pub struct InBank {
     /// Bank identifier
     pub ident: Ident,
 
-    /// Set of variables to declare in the given bank
-    pub variables: Box<[VarDecl]>,
+    /// Variables and functions declared in the bank.
+    /// The two elements are stored in the same list to preserve the order of declaration.
+    pub elements: Box<[BankElement]>,
 }
 
 impl InBank {
     #[inline]
-    pub fn new(ident: Ident, vars: Vec<VarDecl>) -> Self {
+    pub fn new(ident: Ident, elements: Vec<BankElement>) -> Self {
         Self {
             ident,
-            variables: vars.into_boxed_slice(),
+            elements: elements.into_boxed_slice(),
         }
     }
+}
+
+/// Element in a in-bank statement
+/// Can be either a variable or a function
+#[derive(Debug, Clone, PartialEq)]
+pub enum BankElement {
+    /// Variable declaration
+    Var(VarDecl),
+
+    /// Function declaration
+    Func(FuncDecl),
 }
 
 /// Specify where to store the variable
@@ -203,20 +216,35 @@ const BRACE_OPEN: Token = Token::Delimiter(delimiter::BRACE_OPEN);
 const BRACE_CLOSE: Token = Token::Delimiter(delimiter::BRACE_CLOSE);
 
 /// Parse a bank block containing variable declarations.
+#[inline]
 pub fn parser_in_bank<'tok, 'src: 'tok, I>()
 -> impl Parser<'tok, I, InBank, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
+    parser_in_bank_with_function(parser_function())
+}
+
+pub(crate) fn parser_in_bank_with_function<'tok, 'src: 'tok, I, F>(
+    function: F,
+) -> impl Parser<'tok, I, InBank, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+    F: Parser<'tok, I, FuncDecl, extra::Err<Rich<'tok, Token>>>,
+{
+    let var_decl = parser_var_decl().map(BankElement::Var);
+    let func_decl = function.map(BankElement::Func);
+    let element = var_decl.or(func_decl);
+
     just(Token::In)
         .ignore_then(select! { Token::Ident(ident) => ident })
         .then(
-            parser_var_decl()
+            element
                 .repeated()
                 .collect::<Vec<_>>()
                 .delimited_by(just(BRACE_OPEN), just(BRACE_CLOSE)),
         )
-        .map(|(ident, variables)| InBank::new(ident, variables))
+        .map(|(ident, elements)| InBank::new(ident, elements))
 }
 
 /// Parse a variable, static, or constant declaration.
@@ -353,23 +381,41 @@ mod tests {
     }
 
     #[test]
-    fn parses_in_bank_variable_block_as_statement() {
-        let statement = parse_statement("in my_bank { var a: u8; var b: u8; var c: u8; }");
+    fn parses_in_bank_variable_and_function_block_as_statement() {
+        let statement = parse_statement("in my_bank { var a: u8; fn b() {} var c: u8; fn d() {} }");
 
         assert_eq!(statement.label, None);
         let StmtInner::Bank(bank) = statement.inner else {
             panic!("expected in-bank statement");
         };
         assert_eq!(bank.ident, Ident::new("my_bank"));
-        assert_eq!(bank.variables.len(), 3);
-        assert_eq!(bank.variables[0].ident, Ident::new("a"));
-        assert_eq!(bank.variables[1].ident, Ident::new("b"));
-        assert_eq!(bank.variables[2].ident, Ident::new("c"));
-        assert!(
-            bank.variables
-                .iter()
-                .all(|variable| variable.type_used.primitive == primitive::U8)
-        );
+        assert_eq!(bank.elements.len(), 4);
+        assert!(matches!(
+            &bank.elements[0],
+            BankElement::Var(variable)
+                if variable.ident == Ident::new("a")
+                    && variable.type_used.primitive == primitive::U8
+        ));
+        assert!(matches!(
+            &bank.elements[1],
+            BankElement::Func(function)
+                if function.ident == Ident::new("b")
+                    && function.parameters.is_empty()
+                    && function.block.is_empty()
+        ));
+        assert!(matches!(
+            &bank.elements[2],
+            BankElement::Var(variable)
+                if variable.ident == Ident::new("c")
+                    && variable.type_used.primitive == primitive::U8
+        ));
+        assert!(matches!(
+            &bank.elements[3],
+            BankElement::Func(function)
+                if function.ident == Ident::new("d")
+                    && function.parameters.is_empty()
+                    && function.block.is_empty()
+        ));
     }
 
     #[test]

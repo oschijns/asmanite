@@ -57,10 +57,21 @@ const PAREN_OPEN: Token = Token::Delimiter(delimiter::PAREN_OPEN);
 const PAREN_CLOSE: Token = Token::Delimiter(delimiter::PAREN_CLOSE);
 
 /// Parse a function declaration.
+#[inline]
 pub fn parser_function<'tok, 'src: 'tok, I>()
 -> impl Parser<'tok, I, FuncDecl, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    parser_function_with_statement(parser_statement())
+}
+
+pub(crate) fn parser_function_with_statement<'tok, 'src: 'tok, I, S>(
+    statement: S,
+) -> impl Parser<'tok, I, FuncDecl, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+    S: Parser<'tok, I, Statement, extra::Err<Rich<'tok, Token>>>,
 {
     just(Token::Func)
         .ignore_then(select! { Token::Ident(ident) => ident })
@@ -76,7 +87,7 @@ where
                 .ignore_then(parser_return_type())
                 .or_not(),
         )
-        .then(parser_block(parser_statement()))
+        .then(parser_block(statement))
         .map(|(((ident, parameters), return_type), block)| {
             let mut func = FuncDecl::new(ident, parameters, block);
             if let Some(rt) = return_type {
