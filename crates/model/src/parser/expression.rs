@@ -1,4 +1,5 @@
 use crate::{
+    ToBox,
     lexer::{atom::*, token::Token},
     parser::path::{Path, parser_path},
 };
@@ -22,23 +23,25 @@ pub enum Expr {
     Var(Path),
 
     /// Unary operation
-    Unary(UnaryOp),
+    Unary(Box<UnaryOp>),
 
     /// Binary operation
-    Binary(BinaryOp),
+    Binary(Box<BinaryOp>),
 
     /// Assign operation
-    Assign(AssignOp),
+    Assign(Box<AssignOp>),
 
     /// Function call
-    Call(FunctionCall),
+    Call(Box<FunctionCall>),
 
     /// Cast an expression into another type primitive
-    Cast(TypeCast),
+    Cast(Box<TypeCast>),
 
     /// Parenthesized expression
     Group(Box<Self>),
 }
+
+impl ToBox for Expr {}
 
 /// Unary operation
 #[derive(Debug, Clone, PartialEq)]
@@ -47,18 +50,16 @@ pub struct UnaryOp {
     pub op: Operator,
 
     /// Operand
-    pub expr: Box<Expr>,
+    pub expr: Expr,
 }
 
 impl UnaryOp {
     #[inline]
     pub fn new(op: Operator, expr: Expr) -> Self {
-        Self {
-            op,
-            expr: Box::new(expr),
-        }
+        Self { op, expr }
     }
 }
+impl ToBox for UnaryOp {}
 
 /// Binary operation
 #[derive(Debug, Clone, PartialEq)]
@@ -67,22 +68,19 @@ pub struct BinaryOp {
     pub op: Operator,
 
     /// Left operand
-    pub lhs: Box<Expr>,
+    pub lhs: Expr,
 
     /// Right operand
-    pub rhs: Box<Expr>,
+    pub rhs: Expr,
 }
 
 impl BinaryOp {
     #[inline]
     pub fn new(op: Operator, lhs: Expr, rhs: Expr) -> Self {
-        Self {
-            op,
-            lhs: Box::new(lhs),
-            rhs: Box::new(rhs),
-        }
+        Self { op, lhs, rhs }
     }
 }
+impl ToBox for BinaryOp {}
 
 /// Assign operation
 #[derive(Debug, Clone, PartialEq)]
@@ -91,22 +89,19 @@ pub struct AssignOp {
     pub assign: Assign,
 
     /// Left operand
-    pub lhs: Box<Expr>,
+    pub lhs: Expr,
 
     /// Right operand
-    pub rhs: Box<Expr>,
+    pub rhs: Expr,
 }
 
 impl AssignOp {
     #[inline]
     pub fn new(assign: Assign, lhs: Expr, rhs: Expr) -> Self {
-        Self {
-            assign,
-            lhs: Box::new(lhs),
-            rhs: Box::new(rhs),
-        }
+        Self { assign, lhs, rhs }
     }
 }
+impl ToBox for AssignOp {}
 
 /// Function call
 #[derive(Debug, Clone, PartialEq)]
@@ -128,11 +123,13 @@ impl FunctionCall {
     }
 }
 
+impl ToBox for FunctionCall {}
+
 /// Type cast using the `as` keyword
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeCast {
     /// Expression to cast
-    pub expr: Box<Expr>,
+    pub expr: Expr,
 
     /// Primitive type to cast into
     pub prim: Primitive,
@@ -141,12 +138,11 @@ pub struct TypeCast {
 impl TypeCast {
     #[inline]
     pub fn new(expr: Expr, prim: Primitive) -> Self {
-        Self {
-            expr: Box::new(expr),
-            prim,
-        }
+        Self { expr, prim }
     }
 }
+
+impl ToBox for TypeCast {}
 
 // MARK: Parsers
 
@@ -180,14 +176,14 @@ where
                 .boxed()
                 .then(arguments.or_not())
                 .map(|(callee, args)| match args {
-                    Some(args) => Expr::Call(FunctionCall::new(callee, args)),
+                    Some(args) => Expr::Call(FunctionCall::new(callee, args).to_box()),
                     None => Expr::Var(callee),
                 });
 
         let grouped = expr
             .clone()
             .delimited_by(just(PAREN_OPEN), just(PAREN_CLOSE))
-            .map(|inner| Expr::Group(Box::new(inner)));
+            .map(|inner| Expr::Group(inner.to_box()));
 
         // node tokens to be associated with operators
         let atom = literal.or(path).or(grouped);
@@ -243,7 +239,7 @@ where
 
     // All unary operators share the same precedence level (for now...)
     pratt::prefix(PREC_UNARY, operator, |op, operand, _| {
-        Expr::Unary(UnaryOp::new(op, operand))
+        Expr::Unary(UnaryOp::new(op, operand).to_box())
     })
 }
 
@@ -262,7 +258,7 @@ where
 
     // Binary operators have various associativity and precedence
     pratt::infix(assoc.to_chumsky(prec), operator, |lhs, op, rhs, _| {
-        Expr::Binary(BinaryOp::new(op, lhs, rhs))
+        Expr::Binary(BinaryOp::new(op, lhs, rhs).to_box())
     })
 }
 
@@ -278,7 +274,7 @@ where
     pratt::infix(
         ASSOC_ASSIGN.to_chumsky(PREC_ASSIGN),
         assign,
-        |lhs, assign, rhs, _| Expr::Assign(AssignOp::new(assign, lhs, rhs)),
+        |lhs, assign, rhs, _| Expr::Assign(AssignOp::new(assign, lhs, rhs).to_box()),
     )
 }
 
@@ -293,7 +289,7 @@ where
     });
 
     pratt::postfix(PREC_TYPE_CAST, cast, |expr, prim, _| {
-        Expr::Cast(TypeCast::new(expr, prim))
+        Expr::Cast(TypeCast::new(expr, prim).to_box())
     })
 }
 
@@ -366,15 +362,21 @@ mod tests {
 
         assert_eq!(
             expr,
-            Expr::Binary(BinaryOp {
-                op: Operator::new(OpType::Add),
-                lhs: Box::new(Expr::Var(Path::new(&["a"]))),
-                rhs: Box::new(Expr::Binary(BinaryOp {
-                    op: Operator::new(OpType::Mul),
-                    lhs: Box::new(Expr::Var(Path::new(&["b"]))),
-                    rhs: Box::new(Expr::Var(Path::new(&["c"]))),
-                })),
-            })
+            Expr::Binary(
+                BinaryOp::new(
+                    Operator::new(OpType::Add),
+                    Expr::Var(Path::new(&["a"])),
+                    Expr::Binary(
+                        BinaryOp::new(
+                            Operator::new(OpType::Mul),
+                            Expr::Var(Path::new(&["b"])),
+                            Expr::Var(Path::new(&["c"]))
+                        )
+                        .to_box(),
+                    ),
+                )
+                .to_box()
+            )
         );
     }
 
@@ -382,14 +384,23 @@ mod tests {
     fn parses_type_cast_of_grouped_expression() {
         assert_eq!(
             parse_expr("(a + b) as u8"),
-            Expr::Cast(TypeCast::new(
-                Expr::Group(Box::new(Expr::Binary(BinaryOp::new(
-                    Operator::new(OpType::Add),
-                    Expr::Var(Path::new(&["a"])),
-                    Expr::Var(Path::new(&["b"])),
-                )))),
-                primitive::U8,
-            ))
+            Expr::Cast(
+                TypeCast::new(
+                    Expr::Group(
+                        Expr::Binary(
+                            BinaryOp::new(
+                                Operator::new(OpType::Add),
+                                Expr::Var(Path::new(&["a"])),
+                                Expr::Var(Path::new(&["b"])),
+                            )
+                            .to_box()
+                        )
+                        .to_box()
+                    ),
+                    primitive::U8,
+                )
+                .to_box()
+            )
         );
     }
 
@@ -397,29 +408,32 @@ mod tests {
     fn parses_unary_minus_after_binary_multiplication() {
         assert_eq!(
             parse_expr("a * -3"),
-            Expr::Binary(BinaryOp::new(
-                Operator::new(OpType::Mul),
-                Expr::Var(Path::new(&["a"])),
-                Expr::Unary(UnaryOp::new(
-                    Operator::new(OpType::Sub),
-                    Expr::Lit(Literal::Int(IntLit(3))),
-                )),
-            ))
+            Expr::Binary(
+                BinaryOp::new(
+                    Operator::new(OpType::Mul),
+                    Expr::Var(Path::new(&["a"])),
+                    Expr::Unary(
+                        UnaryOp::new(
+                            Operator::new(OpType::Sub),
+                            Expr::Lit(Literal::Int(IntLit(3))),
+                        )
+                        .to_box()
+                    ),
+                )
+                .to_box()
+            )
         );
     }
 
     #[test]
     fn parses_left_and_non_associative_operators() {
+        let Expr::Binary(binary) = parse_expr("a - b - c") else {
+            panic!("expected binary expression");
+        };
+        assert_eq!(binary.op.op_type, OpType::Sub);
         assert!(matches!(
-            parse_expr("a - b - c"),
-            Expr::Binary(BinaryOp {
-                lhs,
-                op: Operator {
-                    op_type: OpType::Sub,
-                    ..
-                },
-                ..
-            }) if matches!(*lhs, Expr::Binary(BinaryOp { op: Operator { op_type: OpType::Sub, .. }, .. }))
+            binary.lhs,
+            Expr::Binary(lhs) if lhs.op.op_type == OpType::Sub
         ));
 
         let source = "a < b < c";
@@ -439,20 +453,26 @@ mod tests {
 
         assert_eq!(
             parse_expr("a = b = c"),
-            Expr::Assign(AssignOp::new(
-                Assign::new(),
-                a.clone(),
-                Expr::Assign(AssignOp::new(Assign::new(), b.clone(), c.clone())),
-            ))
+            Expr::Assign(
+                AssignOp::new(
+                    Assign::new(),
+                    a.clone(),
+                    Expr::Assign(AssignOp::new(Assign::new(), b.clone(), c.clone()).to_box()),
+                )
+                .to_box()
+            )
         );
 
         assert_eq!(
             parse_expr("a = b += c"),
-            Expr::Assign(AssignOp::new(
-                Assign::new(),
-                a,
-                Expr::Assign(AssignOp::new(assign::ADD, b, c)),
-            ))
+            Expr::Assign(
+                AssignOp::new(
+                    Assign::new(),
+                    a,
+                    Expr::Assign(AssignOp::new(assign::ADD, b, c).to_box()),
+                )
+                .to_box()
+            )
         );
     }
 
@@ -469,11 +489,14 @@ mod tests {
         ] {
             assert_eq!(
                 parse_expr(source),
-                Expr::Binary(BinaryOp::new(
-                    Operator::carry(op_type),
-                    Expr::Var(Path::new(&["a"])),
-                    Expr::Var(Path::new(&["b"])),
-                )),
+                Expr::Binary(
+                    BinaryOp::new(
+                        Operator::carry(op_type),
+                        Expr::Var(Path::new(&["a"])),
+                        Expr::Var(Path::new(&["b"])),
+                    )
+                    .to_box()
+                ),
                 "failed to parse carry operator in {source}",
             );
         }
@@ -492,11 +515,14 @@ mod tests {
         ] {
             assert_eq!(
                 parse_expr(source),
-                Expr::Assign(AssignOp::new(
-                    Assign::op_carry(op_type),
-                    Expr::Var(Path::new(&["a"])),
-                    Expr::Var(Path::new(&["b"])),
-                )),
+                Expr::Assign(
+                    AssignOp::new(
+                        Assign::op_carry(op_type),
+                        Expr::Var(Path::new(&["a"])),
+                        Expr::Var(Path::new(&["b"])),
+                    )
+                    .to_box()
+                ),
                 "failed to parse carry assignment in {source}",
             );
         }
@@ -509,9 +535,9 @@ mod tests {
         };
         assert_eq!(unary.op.op_type, OpType::Add);
 
-        let Expr::Group(group) = *unary.expr else {
+        let Expr::Group(group) = unary.expr else {
             panic!("expected grouped expression");
         };
-        assert!(matches!(*group, Expr::Call(FunctionCall { .. })));
+        assert!(matches!(*group, Expr::Call(_)));
     }
 }

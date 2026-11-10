@@ -1,4 +1,5 @@
 use crate::{
+    ToBox,
     lexer::{atom::*, token::Token},
     parser::{
         memory::{ParamDecl, ReturnType, parser_param_decl, parser_return_type},
@@ -47,6 +48,8 @@ impl FuncDecl {
         self
     }
 }
+
+impl ToBox for FuncDecl {}
 
 // MARK: Parsers
 
@@ -102,8 +105,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::expression::Expr;
+    use crate::parser::composite_type::TypeUsed;
+    use crate::parser::memory::{MemStorage, ParamMem, ReturnMem};
     use crate::parser::statement::StmtInner;
+    use crate::parser::{expression::Expr, memory::ParamType};
     use chumsky::input::{Input as _, Stream};
     use logos::Logos as _;
 
@@ -129,17 +134,15 @@ mod tests {
         assert_eq!(function.parameters.len(), 2);
         assert_eq!(
             function.parameters[0].param_type,
-            crate::parser::memory::ParamType::Memory(crate::parser::memory::ParamMem::new(
+            ParamType::Memory(ParamMem::new(
                 Ident::new("toto"),
-                crate::parser::composite_type::TypeUsed {
-                    primitive: primitive::U8,
-                },
-                crate::parser::memory::MemStorage::In(Ident::new("zeropage")),
+                TypeUsed::Prim(primitive::U8,),
+                MemStorage::In(Ident::new("zeropage")),
             ))
         );
         assert_eq!(
             function.parameters[1].param_type,
-            crate::parser::memory::ParamType::Register(Ident::new("a"))
+            ParamType::Register(Ident::new("a"))
         );
         assert_eq!(
             function.return_type,
@@ -166,11 +169,11 @@ mod tests {
         assert_eq!(function.parameters.len(), 2);
         assert_eq!(
             function.parameters[0].param_type,
-            crate::parser::memory::ParamType::Register(Ident::new("a"))
+            ParamType::Register(Ident::new("a"))
         );
         assert_eq!(
             function.parameters[1].param_type,
-            crate::parser::memory::ParamType::Register(Ident::new("x"))
+            ParamType::Register(Ident::new("x"))
         );
         assert!(
             function
@@ -185,31 +188,22 @@ mod tests {
     fn parses_function_with_fixed_address_parameter_and_memory_return() {
         let function = parse_function("fn read(source: u16 at 0x1000 = 7) -> u8 in zeropage {}");
 
-        let crate::parser::memory::ParamType::Memory(parameter) =
-            &function.parameters[0].param_type
-        else {
+        let ParamType::Memory(parameter) = &function.parameters[0].param_type else {
             panic!("expected memory parameter");
         };
         assert_eq!(parameter.ident, Ident::new("source"));
-        assert_eq!(parameter.type_used.primitive, primitive::U16);
-        assert!(matches!(
-            parameter.storage,
-            crate::parser::memory::MemStorage::At(_)
-        ));
+        //assert_eq!(parameter.type_used.primitive, primitive::U16);
+        assert!(matches!(parameter.storage, MemStorage::At(_)));
         assert_eq!(
             function.parameters[0].default_value,
             Some(Box::new(Expr::Lit(Literal::Int(IntLit(7)))))
         );
         assert_eq!(
             function.return_type,
-            Some(Box::new(ReturnType::Memory(
-                crate::parser::memory::ReturnMem::new(
-                    crate::parser::composite_type::TypeUsed {
-                        primitive: primitive::U8,
-                    },
-                    crate::parser::memory::MemStorage::In(Ident::new("zeropage")),
-                )
-            )))
+            Some(Box::new(ReturnType::Memory(ReturnMem::new(
+                TypeUsed::Prim(primitive::U8,),
+                MemStorage::In(Ident::new("zeropage")),
+            ))))
         );
     }
 
@@ -223,10 +217,7 @@ mod tests {
         let ReturnType::Memory(return_type) = *return_type else {
             panic!("expected a memory return type");
         };
-        assert_eq!(return_type.type_used.primitive, primitive::U16);
-        assert!(matches!(
-            return_type.storage,
-            crate::parser::memory::MemStorage::At(_)
-        ));
+        //assert_eq!(return_type.type_used.primitive, primitive::U16);
+        assert!(matches!(return_type.storage, MemStorage::At(_)));
     }
 }

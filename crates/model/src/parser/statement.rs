@@ -1,4 +1,5 @@
 use crate::{
+    ToBox,
     lexer::{atom::*, token::Token},
     parser::{
         expression::{Expr, parser_expr},
@@ -40,13 +41,13 @@ impl Statement {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtInner {
     /// In-bank block for variable declaration
-    Bank(InBank),
+    Bank(Box<InBank>),
 
     /// Variable declaration
-    Var(VarDecl),
+    Var(Box<VarDecl>),
 
     /// Simple instruction
-    Instr(Instr),
+    Instr(Box<Instr>),
 
     /// Defer block
     Defer(Defer),
@@ -55,10 +56,10 @@ pub enum StmtInner {
     If(IfElse),
 
     /// Switch statement
-    Switch(Switch),
+    Switch(Box<Switch>),
 
     /// Loop block
-    Loop(Loop),
+    Loop(Box<Loop>),
 
     /// Break or continue instruction
     LoopCtrl(LoopCtrl),
@@ -74,8 +75,10 @@ pub enum StmtInner {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Instr {
     /// Expression to evaluate as an instruction
-    pub expr: Box<Expr>,
+    pub expr: Expr,
 }
+
+impl ToBox for Instr {}
 
 /// Defer block
 #[derive(Debug, Clone, PartialEq)]
@@ -105,7 +108,7 @@ impl IfElse {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Switch {
     /// Variable or register to check
-    pub variable: Box<Expr>,
+    pub variable: Expr,
 
     /// Cases to compare with
     /// Atleast one must be present and only the last one may omit a condition
@@ -116,11 +119,13 @@ impl Switch {
     #[inline]
     pub fn new(variable: Expr, cases: Vec<Branching>) -> Self {
         Self {
-            variable: Box::new(variable),
+            variable,
             cases: cases.into_boxed_slice(),
         }
     }
 }
+
+impl ToBox for Switch {}
 
 /// Branching element
 #[derive(Debug, Clone, PartialEq)]
@@ -174,6 +179,8 @@ impl Loop {
     }
 }
 
+impl ToBox for Loop {}
+
 /// Define the type of loop
 #[derive(Debug, Clone, PartialEq)]
 pub enum LoopType {
@@ -181,18 +188,18 @@ pub enum LoopType {
     Loop,
 
     /// While loop
-    While(WhileLoopHeader),
+    While(Box<WhileLoopHeader>),
 
     /// For loop
     /// A variable is initialized and incremented / decremented while iterating over the loop
-    For(ForLoopHeader),
+    For(Box<ForLoopHeader>),
 }
 
 /// Header of a while loop
 #[derive(Debug, Clone, PartialEq)]
 pub struct WhileLoopHeader {
     /// Condition to stop iterating
-    pub condition: Box<Expr>,
+    pub condition: Expr,
 
     /// Specify if the condition is checked only after a first iteration
     pub do_while: bool,
@@ -203,11 +210,13 @@ impl WhileLoopHeader {
     #[inline]
     pub fn new(condition: Expr, do_while: bool) -> Self {
         Self {
-            condition: Box::new(condition),
+            condition,
             do_while,
         }
     }
 }
+
+impl ToBox for WhileLoopHeader {}
 
 /// Header of a for loop
 #[derive(Debug, Clone, PartialEq)]
@@ -219,10 +228,10 @@ pub struct ForLoopHeader {
     pub range: Range,
 
     /// Start value of the range
-    pub start: Box<Expr>,
+    pub start: Expr,
 
     /// End value of the range
-    pub end: Box<Expr>,
+    pub end: Expr,
 
     /// Increment or decrement the iterator by the given step
     /// If unspecified, this will default to +1
@@ -236,8 +245,8 @@ impl ForLoopHeader {
         Self {
             iter,
             range,
-            start: Box::new(start),
-            end: Box::new(end),
+            start,
+            end,
             step: None,
         }
     }
@@ -245,10 +254,12 @@ impl ForLoopHeader {
     /// Add the step expression
     #[inline]
     pub fn with_step(&mut self, step: Expr) -> &Self {
-        self.step = Some(Box::new(step));
+        self.step = Some(step.to_box());
         self
     }
 }
+
+impl ToBox for ForLoopHeader {}
 
 /// Loop control instruction
 #[derive(Debug, Clone, PartialEq)]
@@ -315,15 +326,21 @@ where
 {
     recursive(|statement| {
         let block = parser_block(statement.clone()).boxed();
-        let var_decl = parser_var_decl().map(StmtInner::Var).boxed();
-        let bank = parser_in_bank_with_function(parser_function_with_statement(statement.clone()))
-            .map(StmtInner::Bank)
+        let var_decl = parser_var_decl()
+            .map(|v| StmtInner::Var(v.to_box()))
             .boxed();
-        let instr = parser_instr().map(StmtInner::Instr).boxed();
+        let bank = parser_in_bank_with_function(parser_function_with_statement(statement.clone()))
+            .map(|b| StmtInner::Bank(b.to_box()))
+            .boxed();
+        let instr = parser_instr().map(|i| StmtInner::Instr(i.to_box())).boxed();
         let defer = parser_defer(block.clone()).map(StmtInner::Defer).boxed();
         let if_else = parser_if_else(block.clone()).map(StmtInner::If).boxed();
-        let loop_stmt = parser_loop(block.clone()).map(StmtInner::Loop).boxed();
-        let switch = parser_switch(block).map(StmtInner::Switch).boxed();
+        let loop_stmt = parser_loop(block.clone())
+            .map(|l| StmtInner::Loop(l.to_box()))
+            .boxed();
+        let switch = parser_switch(block)
+            .map(|s| StmtInner::Switch(s.to_box()))
+            .boxed();
         let loop_ctrl = parser_loop_ctrl().map(StmtInner::LoopCtrl).boxed();
         let goto = parser_goto().map(StmtInner::Goto).boxed();
         let return_stmt = parser_return().map(StmtInner::Return).boxed();
@@ -397,9 +414,7 @@ where
 {
     parser_expr(true)
         .then_ignore(just(Token::Semicolon))
-        .map(|expr| Instr {
-            expr: Box::new(expr),
-        })
+        .map(|expr| Instr { expr })
 }
 
 /// Parse a defer block, which executes its statements when the current scope exits.
@@ -512,7 +527,7 @@ where
         .then(block.clone())
         .map(|(condition, block)| {
             let header = WhileLoopHeader::new(condition, false);
-            Loop::new(LoopType::While(header), block)
+            Loop::new(LoopType::While(header.to_box()), block)
         });
 
     // do-while loop
@@ -523,7 +538,7 @@ where
         .then_ignore(just(Token::Semicolon))
         .map(|(block, condition)| {
             let header = WhileLoopHeader::new(condition, true);
-            Loop::new(LoopType::While(header), block)
+            Loop::new(LoopType::While(header.to_box()), block)
         });
 
     // for loop
@@ -544,7 +559,7 @@ where
             if let Some(step) = step {
                 header.with_step(step);
             }
-            Loop::new(LoopType::For(header), block)
+            Loop::new(LoopType::For(header.to_box()), block)
         });
 
     infinite.or(while_loop).or(do_while_loop).or(for_loop)
@@ -608,10 +623,13 @@ where
 mod tests {
     use super::*;
     use crate::{
+        ToBox,
         lexer::token::Token,
         parser::{
-            expression::AssignOp,
+            composite_type::TypeUsed,
+            expression::{AssignOp, BinaryOp},
             memory::{MemStorage, ParamMem},
+            path::Path,
         },
     };
     use chumsky::input::{Input, Stream};
@@ -686,7 +704,7 @@ mod tests {
         else {
             panic!("expected loop statement");
         };
-        loop_stmt
+        *loop_stmt
     }
 
     #[test]
@@ -719,7 +737,7 @@ mod tests {
         );
         assert!(matches!(
             declaration.assign_expr,
-            Some(expr) if matches!(*expr, Expr::Assign(AssignOp { .. }))
+            Some(expr) if matches!(*expr, Expr::Assign(_))
         ));
     }
 
@@ -870,11 +888,12 @@ else                 { var third:  u8; }
         assert_eq!(
             parse_statement("return result + 1;").inner,
             StmtInner::Return(Return::with_value(Expr::Binary(
-                crate::parser::expression::BinaryOp::new(
-                    crate::lexer::atom::operator::ADD,
-                    Expr::Var(crate::parser::path::Path::new(&["result"])),
+                BinaryOp::new(
+                    operator::ADD,
+                    Expr::Var(Path::new(&["result"])),
                     Expr::Lit(Literal::Int(IntLit(1))),
                 )
+                .to_box()
             )))
         );
     }
@@ -886,12 +905,15 @@ else                 { var third:  u8; }
             panic!("expected instruction statement");
         };
         assert_eq!(
-            *instr.expr,
-            Expr::Assign(AssignOp::new(
-                Assign::new(),
-                Expr::Var(crate::parser::path::Path::new(&["a"])),
-                Expr::Lit(Literal::Int(IntLit(10))),
-            ))
+            instr.expr,
+            Expr::Assign(
+                AssignOp::new(
+                    Assign::new(),
+                    Expr::Var(Path::new(&["a"])),
+                    Expr::Lit(Literal::Int(IntLit(10))),
+                )
+                .to_box()
+            )
         );
     }
 
@@ -924,7 +946,7 @@ else                 { var third:  u8; }
         };
 
         assert_eq!(
-            *switch.variable,
+            switch.variable,
             Expr::Var(crate::parser::path::Path::new(&["value"]))
         );
         assert_eq!(switch.cases.len(), 3);
@@ -960,19 +982,10 @@ else                 { var third:  u8; }
         assert_eq!(infinite.block.len(), 1);
 
         let while_loop = parse_loop("while ready { }");
-        assert!(matches!(
-            while_loop.loop_type,
-            LoopType::While(WhileLoopHeader {
-                do_while: false,
-                ..
-            })
-        ));
+        assert!(matches!(while_loop.loop_type, LoopType::While(header) if !header.do_while));
 
         let do_while = parse_loop("do { } while ready;");
-        assert!(matches!(
-            do_while.loop_type,
-            LoopType::While(WhileLoopHeader { do_while: true, .. })
-        ));
+        assert!(matches!(do_while.loop_type, LoopType::While(header) if header.do_while));
     }
 
     #[test]
@@ -991,11 +1004,11 @@ else                 { var third:  u8; }
             panic!("expected variable iterator");
         };
         assert_eq!(ident, Ident::new("i"));
-        assert_eq!(type_used.primitive, primitive::U8);
+        assert_eq!(type_used, TypeUsed::Prim(primitive::U8));
         assert_eq!(storage, MemStorage::In(Ident::new("zeropage")));
         assert_eq!(header.range, Range::excl());
-        assert_eq!(*header.start, Expr::Lit(Literal::Int(IntLit(0))));
-        assert_eq!(*header.end, Expr::Lit(Literal::Int(IntLit(10))));
+        assert_eq!(header.start, Expr::Lit(Literal::Int(IntLit(0))));
+        assert_eq!(header.end, Expr::Lit(Literal::Int(IntLit(10))));
         assert_eq!(header.step, None);
     }
 
@@ -1019,10 +1032,10 @@ else                 { var third:  u8; }
             MemStorage::At(Box::new(Expr::Lit(Literal::Int(IntLit(256)))))
         );
         assert_eq!(ident, Ident::new("i"));
-        assert_eq!(type_used.primitive, primitive::U8);
+        assert_eq!(type_used, TypeUsed::Prim(primitive::U8));
         assert_eq!(header.range, Range::incl());
-        assert_eq!(*header.start, Expr::Lit(Literal::Int(IntLit(10))));
-        assert_eq!(*header.end, Expr::Lit(Literal::Int(IntLit(100))));
+        assert_eq!(header.start, Expr::Lit(Literal::Int(IntLit(10))));
+        assert_eq!(header.end, Expr::Lit(Literal::Int(IntLit(100))));
         assert_eq!(
             header.step,
             Some(Box::new(Expr::Lit(Literal::Int(IntLit(2)))))

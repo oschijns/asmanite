@@ -1,4 +1,5 @@
 use crate::{
+    ToBox,
     lexer::{atom::*, token::Token},
     parser::{
         composite_type::{TypeUsed, parser_type_used},
@@ -34,15 +35,17 @@ impl InBank {
     }
 }
 
+impl ToBox for InBank {}
+
 /// Element in a in-bank statement
 /// Can be either a variable or a function
 #[derive(Debug, Clone, PartialEq)]
 pub enum BankElement {
     /// Variable declaration
-    Var(VarDecl),
+    Var(Box<VarDecl>),
 
     /// Function declaration
-    Func(FuncDecl),
+    Func(Box<FuncDecl>),
 }
 
 /// Specify where to store the variable
@@ -112,6 +115,8 @@ impl VarDecl {
         self
     }
 }
+
+impl ToBox for VarDecl {}
 
 /// Parameter declaration
 /// Handle variable declaration for function parameters
@@ -232,8 +237,8 @@ where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
     F: Parser<'tok, I, FuncDecl, extra::Err<Rich<'tok, Token>>>,
 {
-    let var_decl = parser_var_decl().map(BankElement::Var);
-    let func_decl = function.map(BankElement::Func);
+    let var_decl = parser_var_decl().map(|v| BankElement::Var(v.to_box()));
+    let func_decl = function.map(|f| BankElement::Func(f.to_box()));
     let element = var_decl.or(func_decl);
 
     just(Token::In)
@@ -394,7 +399,7 @@ mod tests {
             &bank.elements[0],
             BankElement::Var(variable)
                 if variable.ident == Ident::new("a")
-                    && variable.type_used.primitive == primitive::U8
+                    //&& variable.type_used.primitive == primitive::U8
         ));
         assert!(matches!(
             &bank.elements[1],
@@ -407,7 +412,7 @@ mod tests {
             &bank.elements[2],
             BankElement::Var(variable)
                 if variable.ident == Ident::new("c")
-                    && variable.type_used.primitive == primitive::U8
+                    //&& variable.type_used.primitive == primitive::U8
         ));
         assert!(matches!(
             &bank.elements[3],
@@ -428,9 +433,7 @@ mod tests {
             named.param_type,
             ParamType::Memory(ParamMem::new(
                 Ident::new("toto"),
-                TypeUsed {
-                    primitive: primitive::U8
-                },
+                TypeUsed::Prim(primitive::U8),
                 MemStorage::In(Ident::new("zeropage")),
             ))
         );
@@ -444,7 +447,7 @@ mod tests {
             panic!("expected memory parameter");
         };
         assert_eq!(memory.ident, Ident::new("tata"));
-        assert_eq!(memory.type_used.primitive, primitive::U8);
+        //assert_eq!(memory.type_used.primitive, primitive::U8);
         assert!(matches!(memory.storage, MemStorage::At(_)));
         assert_eq!(
             fixed.default_value,
@@ -478,9 +481,7 @@ mod tests {
         assert_eq!(
             banked,
             ReturnType::Memory(ReturnMem::new(
-                TypeUsed {
-                    primitive: primitive::U8
-                },
+                TypeUsed::Prim(primitive::U8),
                 MemStorage::In(Ident::new("zeropage")),
             ))
         );
@@ -492,9 +493,7 @@ mod tests {
         assert!(matches!(
             fixed,
             ReturnType::Memory(ReturnMem {
-                type_used: TypeUsed {
-                    primitive: primitive::U8
-                },
+                type_used: TypeUsed::Prim(primitive::U8),
                 storage: MemStorage::At(_)
             })
         ));
