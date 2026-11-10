@@ -327,11 +327,24 @@ pub fn parser_return_type<'tok, 'src: 'tok, I>()
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
+    // TODO: Here we have an issue, because we cannot deduce
+    // whenever we are handling a register or another arbitrary type.
+    // Maybe we should have a config element that would list the existing registers?
+    // We do not have this issue with primitive types and it makes parsing easier.
     let memory = parser_type_used()
         .then(parser_mem_storage())
-        .map(|(type_used, storage)| ReturnType::Memory(ReturnMem::new(type_used, storage)));
+        .map(|(type_used, storage)| match type_used {
+            TypeUsed::Complex(complex)
+                if complex.generics.is_none()
+                    && complex.ident.as_slice().len() == 1
+                    && storage == MemStorage::Undefined =>
+            {
+                ReturnType::Register(complex.ident[0].clone())
+            }
+            type_used => ReturnType::Memory(ReturnMem::new(type_used, storage)),
+        });
 
-    memory.or(select! { Token::Ident(register) => ReturnType::Register(register) })
+    memory
 }
 
 /// Parse an optional memory placement clause.
