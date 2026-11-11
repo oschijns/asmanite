@@ -358,10 +358,7 @@ mod tests {
     fn parses_function_call() {
         assert_eq!(
             parse_call("my::func(a, 2)"),
-            FunctionCall::new(
-                "my::func".into(),
-                vec![parse_expr("a"), parse_expr("2")]
-            )
+            FunctionCall::new("my::func".into(), vec![parse_expr("a"), parse_expr("2")])
         );
     }
 
@@ -374,10 +371,7 @@ mod tests {
             parse_expr("ordinary_name"),
             Expr::Var("ordinary_name".into())
         );
-        assert_eq!(
-            parse_expr("module::func"),
-            Expr::Var("module::func".into())
-        );
+        assert_eq!(parse_expr("module::func"), Expr::Var("module::func".into()));
         assert!(matches!(parse_expr("func()"), Expr::Call(_)));
     }
 

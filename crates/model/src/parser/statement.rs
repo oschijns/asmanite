@@ -948,10 +948,7 @@ else                 { var third:  u8; }
             panic!("expected switch statement");
         };
 
-        assert_eq!(
-            switch.variable,
-            Expr::Var("value".into())
-        );
+        assert_eq!(switch.variable, Expr::Var("value".into()));
         assert_eq!(switch.cases.len(), 3);
         assert_eq!(
             switch.cases[0].condition,

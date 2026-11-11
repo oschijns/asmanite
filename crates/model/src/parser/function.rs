@@ -5,7 +5,10 @@ use crate::{
         token::{IdentOrReg, Token},
     },
     parser::{
-        memory::{ParamDecl, ReturnType, parser_param_decl, parser_return_type},
+        memory::{
+            MemStorage, ParamDecl, ReturnType, parser_mem_storage, parser_param_decl,
+            parser_return_type,
+        },
         statement::{Statement, parser_block, parser_statement},
     },
 };
@@ -22,6 +25,9 @@ pub struct FuncDecl {
     /// Function identifier
     pub ident: Ident,
 
+    /// Where to place the function
+    pub storage: MemStorage,
+
     /// List of parameters
     pub parameters: Box<[ParamDecl]>,
 
@@ -35,9 +41,15 @@ pub struct FuncDecl {
 impl FuncDecl {
     /// Declare a function
     #[inline]
-    pub fn new(ident: Ident, parameters: Vec<ParamDecl>, block: Vec<Statement>) -> Self {
+    pub fn new(
+        ident: Ident,
+        storage: MemStorage,
+        parameters: Vec<ParamDecl>,
+        block: Vec<Statement>,
+    ) -> Self {
         Self {
             ident,
+            storage,
             parameters: parameters.into_boxed_slice(),
             return_type: None,
             block: block.into_boxed_slice(),
@@ -47,7 +59,7 @@ impl FuncDecl {
     /// Add the return type if any
     #[inline]
     pub fn with_return(&mut self, return_type: ReturnType) -> &Self {
-        self.return_type = Some(Box::new(return_type));
+        self.return_type = Some(return_type.to_box());
         self
     }
 }
@@ -83,6 +95,7 @@ where
         .ignore_then(select! {
             Token::Ident(IdentOrReg::Ident(ident)) => ident
         })
+        .then(parser_mem_storage())
         .then(
             parser_param_decl()
                 .separated_by(just(Token::Comma))
@@ -96,8 +109,8 @@ where
                 .or_not(),
         )
         .then(parser_block(statement))
-        .map(|(((ident, parameters), return_type), block)| {
-            let mut func = FuncDecl::new(ident, parameters, block);
+        .map(|((((ident, storage), parameters), return_type), block)| {
+            let mut func = FuncDecl::new(ident, storage, parameters, block);
             if let Some(rt) = return_type {
                 func.with_return(rt);
             }
@@ -165,9 +178,39 @@ mod tests {
         let function = parse_function("fn empty() {}");
 
         assert_eq!(function.ident, "empty".into());
+        assert_eq!(function.storage, MemStorage::Undefined);
         assert!(function.parameters.is_empty());
         assert_eq!(function.return_type, None);
         assert!(function.block.is_empty());
+    }
+
+    #[test]
+    fn parses_function_storage_placement() {
+        let banked = parse_function("fn my_func in prog_bank (param: u8 in zeropage) -> a { }");
+        assert_eq!(banked.storage, MemStorage::In("prog_bank".into()));
+        assert_eq!(banked.parameters.len(), 1);
+        assert_eq!(
+            banked.parameters[0].param_type,
+            ParamType::Memory(ParamMem::new(
+                "param".into(),
+                TypeUsed::Prim(primitive::U8),
+                MemStorage::In("zeropage".into()),
+            ))
+        );
+        assert_eq!(
+            banked.return_type,
+            Some(ReturnType::Register("a".into()).to_box())
+        );
+
+        let fixed = parse_function("fn my_other at 0x1000 () -> x { }");
+        assert_eq!(
+            fixed.storage,
+            MemStorage::At(Expr::Lit(Literal::Int(IntLit(0x1000))).to_box())
+        );
+        assert_eq!(
+            fixed.return_type,
+            Some(ReturnType::Register("x".into()).to_box())
+        );
     }
 
     #[test]
@@ -209,11 +252,13 @@ mod tests {
         );
         assert_eq!(
             function.return_type,
-            Some(ReturnType::Memory(ReturnMem::new(
-                TypeUsed::Prim(primitive::U8,),
-                MemStorage::In("zeropage".into()),
-            ))
-            .to_box())
+            Some(
+                ReturnType::Memory(ReturnMem::new(
+                    TypeUsed::Prim(primitive::U8,),
+                    MemStorage::In("zeropage".into()),
+                ))
+                .to_box()
+            )
         );
     }
 

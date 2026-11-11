@@ -354,7 +354,7 @@ where
 }
 
 /// Parse an optional memory placement clause.
-fn parser_mem_storage<'tok, 'src: 'tok, I>()
+pub(crate) fn parser_mem_storage<'tok, 'src: 'tok, I>()
 -> impl Parser<'tok, I, MemStorage, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
