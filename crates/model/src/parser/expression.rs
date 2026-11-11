@@ -2,6 +2,7 @@ use crate::{
     ToBox,
     lexer::{atom::*, token::Token},
     parser::path::{Path, parser_path},
+    utils::register_dict::{RegIdent, is_path_register},
 };
 use chumsky::{
     IterParser, Parser, error::Rich, extra, input::ValueInput, pratt,
@@ -18,6 +19,9 @@ use strum::IntoEnumIterator;
 pub enum Expr {
     /// Literal
     Lit(Literal),
+
+    /// Hardware register
+    Register(RegIdent),
 
     /// Path to variable identifier
     Var(Path),
@@ -177,7 +181,10 @@ where
                 .then(arguments.or_not())
                 .map(|(callee, args)| match args {
                     Some(args) => Expr::Call(FunctionCall::new(callee, args).to_box()),
-                    None => Expr::Var(callee),
+                    None => match is_path_register(&callee) {
+                        Some(register) => Expr::Register(register),
+                        None => Expr::Var(callee),
+                    },
                 });
 
         let grouped = expr
@@ -316,6 +323,7 @@ fn gen_op_bitmasks() -> HashMap<(Associativity, Precedence), u64> {
 mod tests {
     use super::*;
     use crate::parser::path::Path;
+    use crate::utils::register_dict::init_test_registers;
     use chumsky::input::{Input, Stream};
     use logos::Logos;
 
@@ -357,6 +365,22 @@ mod tests {
     }
 
     #[test]
+    fn distinguishes_registers_from_variables() {
+        init_test_registers();
+
+        assert_eq!(parse_expr("a"), Expr::Register("a".into()));
+        assert_eq!(
+            parse_expr("ordinary_name"),
+            Expr::Var(Path::new(&["ordinary_name"]))
+        );
+        assert_eq!(
+            parse_expr("module::func"),
+            Expr::Var(Path::new(&["module", "func"]))
+        );
+        assert!(matches!(parse_expr("func()"), Expr::Call(_)));
+    }
+
+    #[test]
     fn parses_operator_precedence() {
         let expr = parse_expr("a + b * c");
 
@@ -365,7 +389,7 @@ mod tests {
             Expr::Binary(
                 BinaryOp::new(
                     Operator::new(OpType::Add),
-                    Expr::Var(Path::new(&["a"])),
+                    Expr::Register("a".into()),
                     Expr::Binary(
                         BinaryOp::new(
                             Operator::new(OpType::Mul),
@@ -390,7 +414,7 @@ mod tests {
                         Expr::Binary(
                             BinaryOp::new(
                                 Operator::new(OpType::Add),
-                                Expr::Var(Path::new(&["a"])),
+                                Expr::Register("a".into()),
                                 Expr::Var(Path::new(&["b"])),
                             )
                             .to_box()
@@ -411,7 +435,7 @@ mod tests {
             Expr::Binary(
                 BinaryOp::new(
                     Operator::new(OpType::Mul),
-                    Expr::Var(Path::new(&["a"])),
+                    Expr::Register("a".into()),
                     Expr::Unary(
                         UnaryOp::new(
                             Operator::new(OpType::Sub),
@@ -447,7 +471,7 @@ mod tests {
 
     #[test]
     fn parses_chained_assignments_right_associatively() {
-        let a = Expr::Var(Path::new(&["a"]));
+        let a = Expr::Register("a".into());
         let b = Expr::Var(Path::new(&["b"]));
         let c = Expr::Var(Path::new(&["c"]));
 
@@ -492,7 +516,7 @@ mod tests {
                 Expr::Binary(
                     BinaryOp::new(
                         Operator::carry(op_type),
-                        Expr::Var(Path::new(&["a"])),
+                        Expr::Register("a".into()),
                         Expr::Var(Path::new(&["b"])),
                     )
                     .to_box()
@@ -518,7 +542,7 @@ mod tests {
                 Expr::Assign(
                     AssignOp::new(
                         Assign::op_carry(op_type),
-                        Expr::Var(Path::new(&["a"])),
+                        Expr::Register("a".into()),
                         Expr::Var(Path::new(&["b"])),
                     )
                     .to_box()
@@ -530,7 +554,7 @@ mod tests {
 
     #[test]
     fn parses_prefix_unary_operators_and_calls() {
-        let Expr::Unary(unary) = parse_expr("+(a::b(1))") else {
+        let Expr::Unary(unary) = parse_expr("+(d::b(1))") else {
             panic!("expected unary expression");
         };
         assert_eq!(unary.op.op_type, OpType::Add);

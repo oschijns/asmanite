@@ -631,6 +631,7 @@ mod tests {
             memory::{MemStorage, ParamMem},
             path::Path,
         },
+        utils::register_dict::init_test_registers,
     };
     use chumsky::input::{Input, Stream};
     use logos::Logos;
@@ -909,7 +910,7 @@ else                 { var third:  u8; }
             Expr::Assign(
                 AssignOp::new(
                     Assign::new(),
-                    Expr::Var(Path::new(&["a"])),
+                    Expr::Register("a".into()),
                     Expr::Lit(Literal::Int(IntLit(10))),
                 )
                 .to_box()
@@ -1044,11 +1045,12 @@ else                 { var third:  u8; }
 
     #[test]
     fn parses_for_loop_using_register_iterator() {
-        let loop_stmt = parse_loop("for A of 0..10 { }");
+        init_test_registers();
+        let loop_stmt = parse_loop("for x of 0..10 { }");
         let LoopType::For(header) = loop_stmt.loop_type else {
             panic!("expected for loop");
         };
 
-        assert_eq!(header.iter, ParamType::Register(Ident::new("A")));
+        assert_eq!(header.iter, ParamType::Register("x".into()));
     }
 }

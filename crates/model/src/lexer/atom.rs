@@ -751,3 +751,11 @@ impl Ident {
         Self(ident.to_owned().into_boxed_str())
     }
 }
+
+/// Create a new register identifier from a raw string
+impl From<&str> for Ident {
+    #[inline]
+    fn from(name: &str) -> Self {
+        Self::new(name)
+    }
+}

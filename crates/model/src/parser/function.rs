@@ -109,6 +109,7 @@ mod tests {
     use crate::parser::memory::{MemStorage, ParamMem, ReturnMem};
     use crate::parser::statement::StmtInner;
     use crate::parser::{expression::Expr, memory::ParamType};
+    use crate::utils::register_dict::init_test_registers;
     use chumsky::input::{Input as _, Stream};
     use logos::Logos as _;
 
@@ -128,25 +129,26 @@ mod tests {
 
     #[test]
     fn parses_function_with_parameters_return_type_and_statements() {
+        init_test_registers();
         let function = parse_function("fn my_func(toto: u8 in zeropage, a = 10) -> x { return; }");
 
-        assert_eq!(function.ident, Ident::new("my_func"));
+        assert_eq!(function.ident, "my_func".into());
         assert_eq!(function.parameters.len(), 2);
         assert_eq!(
             function.parameters[0].param_type,
             ParamType::Memory(ParamMem::new(
-                Ident::new("toto"),
+                "toto".into(),
                 TypeUsed::Prim(primitive::U8,),
-                MemStorage::In(Ident::new("zeropage")),
+                MemStorage::In("zeropage".into()),
             ))
         );
         assert_eq!(
             function.parameters[1].param_type,
-            ParamType::Register(Ident::new("a"))
+            ParamType::Register("a".into())
         );
         assert_eq!(
             function.return_type,
-            Some(Box::new(ReturnType::Register(Ident::new("x"))))
+            Some(ReturnType::Register("x".into()).to_box())
         );
         assert_eq!(function.block.len(), 1);
         assert!(matches!(function.block[0].inner, StmtInner::Return(_)));
@@ -164,16 +166,17 @@ mod tests {
 
     #[test]
     fn parses_register_parameters_and_trailing_comma() {
+        init_test_registers();
         let function = parse_function("fn add(a, x,) {}");
 
         assert_eq!(function.parameters.len(), 2);
         assert_eq!(
             function.parameters[0].param_type,
-            ParamType::Register(Ident::new("a"))
+            ParamType::Register("a".into())
         );
         assert_eq!(
             function.parameters[1].param_type,
-            ParamType::Register(Ident::new("x"))
+            ParamType::Register("x".into())
         );
         assert!(
             function

@@ -6,6 +6,7 @@ use crate::{
         expression::{Expr, parser_expr},
         function::{FuncDecl, parser_function},
     },
+    utils::register_dict::{RegIdent, is_path_register, is_register},
 };
 use chumsky::{
     IterParser as _, Parser, error::Rich, extra, input::ValueInput, primitive::just, select,
@@ -156,7 +157,7 @@ pub enum ParamType {
     Memory(ParamMem),
 
     /// Parameter is bounded to a register
-    Register(Ident),
+    Register(RegIdent),
 }
 
 /// Parameter bounded to a memory location
@@ -191,8 +192,10 @@ pub enum ReturnType {
     Memory(ReturnMem),
 
     /// Parameter is bounded to a register
-    Register(Ident),
+    Register(RegIdent),
 }
+
+impl ToBox for ReturnType {}
 
 /// Return type bounded to a memory location
 #[derive(Debug, Clone, PartialEq)]
@@ -219,6 +222,19 @@ const BRACE_OPEN: Token = Token::Delimiter(delimiter::BRACE_OPEN);
 
 /// Close brace token
 const BRACE_CLOSE: Token = Token::Delimiter(delimiter::BRACE_CLOSE);
+
+/// Try to parse an identifier as a register identifier
+pub fn parser_register<'tok, 'src: 'tok, I>()
+-> impl Parser<'tok, I, RegIdent, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    select! {
+        Token::Ident(ident) if is_register(&ident).is_some() => {
+            RegIdent::new(ident.0.as_ref())
+        },
+    }
+}
 
 /// Parse a bank block containing variable declarations.
 #[inline]
@@ -299,7 +315,7 @@ where
             ParamType::Memory(ParamMem::new(ident, type_used, storage))
         });
 
-    memory.or(select! { Token::Ident(register) => ParamType::Register(register) })
+    memory.or(parser_register().map(ParamType::Register))
 }
 
 /// Parse a parameter declaration, optionally initialized with a default value.
@@ -327,19 +343,16 @@ pub fn parser_return_type<'tok, 'src: 'tok, I>()
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
-    // TODO: Here we have an issue, because we cannot deduce
-    // whenever we are handling a register or another arbitrary type.
-    // Maybe we should have a config element that would list the existing registers?
-    // We do not have this issue with primitive types and it makes parsing easier.
     let memory = parser_type_used()
         .then(parser_mem_storage())
         .map(|(type_used, storage)| match type_used {
             TypeUsed::Complex(complex)
-                if complex.generics.is_none()
-                    && complex.ident.as_slice().len() == 1
-                    && storage == MemStorage::Undefined =>
+                if complex.generics.is_none() && storage == MemStorage::Undefined =>
             {
-                ReturnType::Register(complex.ident[0].clone())
+                match is_path_register(&complex.ident) {
+                    Some(register) => ReturnType::Register(register),
+                    None => ReturnType::Memory(ReturnMem::new(TypeUsed::Complex(complex), storage)),
+                }
             }
             type_used => ReturnType::Memory(ReturnMem::new(type_used, storage)),
         });
@@ -370,6 +383,7 @@ mod tests {
     use crate::{
         lexer::token::Token,
         parser::statement::{Statement, StmtInner, parser_statement},
+        utils::register_dict::init_test_registers,
     };
     use chumsky::input::{Input as _, Stream};
     use logos::Logos as _;
@@ -438,6 +452,8 @@ mod tests {
 
     #[test]
     fn parses_memory_and_register_parameter_declarations() {
+        init_test_registers();
+
         let named = parser_param_decl()
             .parse(token_input("toto: u8 in zeropage"))
             .into_result()
@@ -445,9 +461,9 @@ mod tests {
         assert_eq!(
             named.param_type,
             ParamType::Memory(ParamMem::new(
-                Ident::new("toto"),
+                "toto".into(),
                 TypeUsed::Prim(primitive::U8),
-                MemStorage::In(Ident::new("zeropage")),
+                MemStorage::In("zeropage".into()),
             ))
         );
         assert_eq!(named.default_value, None);
@@ -471,22 +487,31 @@ mod tests {
             .parse(token_input("a = 20"))
             .into_result()
             .expect("initialized register parameter should parse");
-        assert_eq!(register.param_type, ParamType::Register(Ident::new("a")));
+        assert_eq!(register.param_type, ParamType::Register("a".into()));
         assert_eq!(
             register.default_value,
             Some(Box::new(Expr::Lit(Literal::Int(IntLit(20)))))
         );
 
         let register = parser_param_decl()
-            .parse(token_input("x"))
+            .parse(token_input("y"))
             .into_result()
             .expect("register parameter should parse");
-        assert_eq!(register.param_type, ParamType::Register(Ident::new("x")));
+        assert_eq!(register.param_type, ParamType::Register("y".into()));
+
+        assert!(
+            parser_param_decl()
+                .parse(token_input("ordinary_name"))
+                .into_result()
+                .is_err()
+        );
         assert_eq!(register.default_value, None);
     }
 
     #[test]
     fn parses_memory_and_register_return_types() {
+        init_test_registers();
+
         let banked = parser_return_type()
             .parse(token_input("u8 in zeropage"))
             .into_result()
@@ -495,7 +520,7 @@ mod tests {
             banked,
             ReturnType::Memory(ReturnMem::new(
                 TypeUsed::Prim(primitive::U8),
-                MemStorage::In(Ident::new("zeropage")),
+                MemStorage::In("zeropage".into()),
             ))
         );
 
@@ -511,14 +536,25 @@ mod tests {
             })
         ));
 
-        for register in ["a", "x"] {
+        for register in ["x", "y"] {
             assert_eq!(
                 parser_return_type()
                     .parse(token_input(register))
                     .into_result()
                     .expect("register return type should parse"),
-                ReturnType::Register(Ident::new(register))
+                ReturnType::Register(register.into())
             );
         }
+
+        assert!(matches!(
+            parser_return_type()
+                .parse(token_input("ordinary_type"))
+                .into_result()
+                .expect("ordinary named return type should remain a memory type"),
+            ReturnType::Memory(ReturnMem {
+                type_used: TypeUsed::Complex(complex),
+                storage: MemStorage::Undefined,
+            }) if complex.ident == crate::parser::path::Path::new(&["ordinary_type"])
+        ));
     }
 }
