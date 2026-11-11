@@ -1,12 +1,15 @@
 use crate::{
     ToBox,
-    lexer::{atom::*, token::Token},
+    lexer::{
+        atom::*,
+        register::RegIdent,
+        token::{IdentOrReg, Token},
+    },
     parser::{
         composite_type::{TypeUsed, parser_type_used},
         expression::{Expr, parser_expr},
         function::{FuncDecl, parser_function},
     },
-    utils::register_dict::{RegIdent, is_path_register, is_register},
 };
 use chumsky::{
     IterParser as _, Parser, error::Rich, extra, input::ValueInput, primitive::just, select,
@@ -223,17 +226,13 @@ const BRACE_OPEN: Token = Token::Delimiter(delimiter::BRACE_OPEN);
 /// Close brace token
 const BRACE_CLOSE: Token = Token::Delimiter(delimiter::BRACE_CLOSE);
 
-/// Try to parse an identifier as a register identifier
+/// Parse a register identifier token.
 pub fn parser_register<'tok, 'src: 'tok, I>()
 -> impl Parser<'tok, I, RegIdent, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
-    select! {
-        Token::Ident(ident) if is_register(&ident).is_some() => {
-            RegIdent::new(ident.0.as_ref())
-        },
-    }
+    select! { Token::Ident(IdentOrReg::Reg(register)) => register }
 }
 
 /// Parse a bank block containing variable declarations.
@@ -258,7 +257,9 @@ where
     let element = var_decl.or(func_decl);
 
     just(Token::In)
-        .ignore_then(select! { Token::Ident(ident) => ident })
+        .ignore_then(select! {
+            Token::Ident(IdentOrReg::Ident(ident)) => ident
+        })
         .then(
             element
                 .repeated()
@@ -282,7 +283,9 @@ where
     // Optionnaly, we may specify where the variable
     // is stored and a value at initialization.
     select! { Token::VarDecl(decl_type) => decl_type }
-        .then(select! { Token::Ident(ident) => ident })
+        .then(select! {
+            Token::Ident(IdentOrReg::Ident(ident)) => ident
+        })
         .then_ignore(just(Token::Colon))
         .then(type_used)
         .then(parser_mem_storage())
@@ -307,7 +310,7 @@ pub fn parser_param_type<'tok, 'src: 'tok, I>()
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
-    let memory = select! { Token::Ident(ident) => ident }
+    let memory = select! { Token::Ident(IdentOrReg::Ident(ident)) => ident }
         .then_ignore(just(Token::Colon))
         .then(parser_type_used())
         .then(parser_mem_storage())
@@ -345,19 +348,9 @@ where
 {
     let memory = parser_type_used()
         .then(parser_mem_storage())
-        .map(|(type_used, storage)| match type_used {
-            TypeUsed::Complex(complex)
-                if complex.generics.is_none() && storage == MemStorage::Undefined =>
-            {
-                match is_path_register(&complex.ident) {
-                    Some(register) => ReturnType::Register(register),
-                    None => ReturnType::Memory(ReturnMem::new(TypeUsed::Complex(complex), storage)),
-                }
-            }
-            type_used => ReturnType::Memory(ReturnMem::new(type_used, storage)),
-        });
+        .map(|(type_used, storage)| ReturnType::Memory(ReturnMem::new(type_used, storage)));
 
-    memory
+    parser_register().map(ReturnType::Register).or(memory)
 }
 
 /// Parse an optional memory placement clause.
@@ -367,7 +360,9 @@ where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
     just(Token::In)
-        .ignore_then(select! { Token::Ident(ident) => MemStorage::In(ident) })
+        .ignore_then(select! {
+            Token::Ident(IdentOrReg::Ident(ident)) => MemStorage::In(ident)
+        })
         .or(just(Token::At)
             .ignore_then(parser_expr(false))
             .map(MemStorage::new_at))
@@ -381,9 +376,8 @@ where
 mod tests {
     use super::*;
     use crate::{
-        lexer::token::Token,
+        lexer::{register::*, token::Token},
         parser::statement::{Statement, StmtInner, parser_statement},
-        utils::register_dict::init_test_registers,
     };
     use chumsky::input::{Input as _, Stream};
     use logos::Logos as _;
@@ -392,6 +386,7 @@ mod tests {
         source: &str,
     ) -> impl chumsky::input::ValueInput<'static, Token = Token, Span = chumsky::span::SimpleSpan>
     {
+        init_test_registers();
         let tokens: Vec<_> = Token::lexer(source)
             .spanned()
             .map(|(token, span)| (token.expect("test source should lex"), span.into()))
@@ -400,6 +395,7 @@ mod tests {
     }
 
     fn parse_statement(source: &str) -> Statement {
+        init_test_registers();
         let tokens = Token::lexer(source)
             .spanned()
             .map(|(token, span)| (token.expect("test source should lex"), span.into()));
@@ -414,7 +410,8 @@ mod tests {
 
     #[test]
     fn parses_in_bank_variable_and_function_block_as_statement() {
-        let statement = parse_statement("in my_bank { var a: u8; fn b() {} var c: u8; fn d() {} }");
+        let statement =
+            parse_statement("in my_bank { var first: u8; fn b() {} var second: u8; fn d() {} }");
 
         assert_eq!(statement.label, None);
         let StmtInner::Bank(bank) = statement.inner else {
@@ -425,7 +422,7 @@ mod tests {
         assert!(matches!(
             &bank.elements[0],
             BankElement::Var(variable)
-                if variable.ident == Ident::new("a")
+                if variable.ident == Ident::new("first")
                     //&& variable.type_used.primitive == primitive::U8
         ));
         assert!(matches!(
@@ -438,7 +435,7 @@ mod tests {
         assert!(matches!(
             &bank.elements[2],
             BankElement::Var(variable)
-                if variable.ident == Ident::new("c")
+                if variable.ident == Ident::new("second")
                     //&& variable.type_used.primitive == primitive::U8
         ));
         assert!(matches!(

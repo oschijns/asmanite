@@ -1,6 +1,9 @@
 use crate::{
     ToBox,
-    lexer::{atom::*, token::Token},
+    lexer::{
+        atom::*,
+        token::{IdentOrReg, Token},
+    },
     parser::{
         memory::{ParamDecl, ReturnType, parser_param_decl, parser_return_type},
         statement::{Statement, parser_block, parser_statement},
@@ -77,7 +80,9 @@ where
     S: Parser<'tok, I, Statement, extra::Err<Rich<'tok, Token>>>,
 {
     just(Token::Func)
-        .ignore_then(select! { Token::Ident(ident) => ident })
+        .ignore_then(select! {
+            Token::Ident(IdentOrReg::Ident(ident)) => ident
+        })
         .then(
             parser_param_decl()
                 .separated_by(just(Token::Comma))
@@ -105,15 +110,16 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lexer::register::init_test_registers;
     use crate::parser::composite_type::TypeUsed;
     use crate::parser::memory::{MemStorage, ParamMem, ReturnMem};
     use crate::parser::statement::StmtInner;
     use crate::parser::{expression::Expr, memory::ParamType};
-    use crate::utils::register_dict::init_test_registers;
     use chumsky::input::{Input as _, Stream};
     use logos::Logos as _;
 
     fn parse_function(source: &str) -> FuncDecl {
+        init_test_registers();
         let tokens: Vec<_> = Token::lexer(source)
             .spanned()
             .map(|(token, span)| (token.expect("test source should lex"), span.into()))

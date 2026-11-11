@@ -1,14 +1,9 @@
-use crate::{
-    lexer::atom::{Ident, Primitive},
-    parser::path::Path,
-    utils::small_hash::SmallHashMap,
-};
-use core::fmt;
-use std::{
-    fmt::Write,
+use crate::{lexer::atom::Primitive, utils::small_hash::SmallHashMap};
+use core::{
+    fmt::{self, Write},
     hash::{Hash, Hasher},
-    sync::OnceLock,
 };
+use std::sync::OnceLock;
 
 /// List of registers availabel for the given target with their corresponding primitive type
 pub static REGISTERS: OnceLock<RegSet> = OnceLock::new();
@@ -23,22 +18,8 @@ pub fn registers_init(registers: &[(&str, RegDef)]) -> Result<(), RegInitError> 
 
 /// Is the given identifier a register ?
 #[inline]
-pub fn is_register(ident: &Ident) -> Option<RegIdent> {
-    REGISTERS
-        .get()
-        .and_then(|set| set.get_register(ident.0.as_ref()))
-}
-
-/// Is the given path a register ?
-/// Note: This is a shortcut for checking if a path have
-/// a single element and if said element is a register.
-#[inline]
-pub fn is_path_register(path: &Path) -> Option<RegIdent> {
-    if path.0.len() == 1 {
-        is_register(&path.0[0])
-    } else {
-        None
-    }
+pub fn is_register(name: &str) -> Option<RegIdent> {
+    REGISTERS.get().and_then(|set| set.get_register(name))
 }
 
 #[derive(thiserror::Error, Debug, Clone, Copy)]

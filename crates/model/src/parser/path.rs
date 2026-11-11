@@ -1,4 +1,7 @@
-use crate::lexer::{atom::Ident, token::Token};
+use crate::lexer::{
+    atom::Ident,
+    token::{IdentOrReg, Token},
+};
 use chumsky::{
     IterParser, Parser, error::Rich, extra, input::ValueInput, prelude::just, select,
     span::SimpleSpan,
@@ -43,12 +46,19 @@ where
 {
     // collect a sequence of identifiers separated by `::`
     select! {
-        Token::Ident(ident) => ident,
+        Token::Ident(IdentOrReg::Ident(ident)) => ident,
     }
     .separated_by(just(Token::PathSep))
     .at_least(1)
     .collect::<Box<[_]>>()
     .map(Path)
+}
+
+/// Simplify constructing a path from a raw string for testing purpose
+impl From<&str> for Path {
+    fn from(value: &str) -> Self {
+        Self(value.split("::").map(Ident::new).collect::<Box<[_]>>())
+    }
 }
 
 impl ops::Index<usize> for Path {

@@ -12,7 +12,7 @@ impl Hasher for SmallHasher {
     }
 
     /// Should not be used
-    fn write(&mut self, bytes: &[u8]) {
+    fn write(&mut self, _bytes: &[u8]) {
         panic!("Should not be used")
     }
 
@@ -27,7 +27,9 @@ impl Hasher for SmallHasher {
 pub(crate) type BuildSmallHasher = std::hash::BuildHasherDefault<SmallHasher>;
 
 /// Small key type hash-set
+#[allow(unused)]
 pub(crate) type SmallHashSet<T> = std::collections::HashSet<T, BuildSmallHasher>;
 
 /// Small key type hash-map
+#[allow(unused)]
 pub(crate) type SmallHashMap<K, V> = std::collections::HashMap<K, V, BuildSmallHasher>;

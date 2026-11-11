@@ -1,4 +1,7 @@
-use crate::lexer::atom::{assign, delimiter::*, operator::*, primitive::*, *};
+use crate::lexer::{
+    atom::{assign, delimiter::*, operator::*, primitive::*, *},
+    register::{RegIdent, is_register},
+};
 use core::hash::Hash;
 use logos::{Lexer, Logos};
 
@@ -262,7 +265,18 @@ pub enum Token {
     Label(Label),
 
     /// Identifier
-    #[regex(r"[A-Za-z_]\w*", Ident::parse)]
+    #[regex(r"[A-Za-z_]\w*", IdentOrReg::parse)]
+    Ident(IdentOrReg),
+}
+
+/// Successfully identified register or common identifier
+#[derive(Debug, Clone, PartialEq)]
+pub enum IdentOrReg {
+    /// The token is a register name
+    /// Note: register names are reserved on initialization
+    Reg(RegIdent),
+
+    /// The token is a generic identifier
     Ident(Ident),
 }
 
@@ -377,12 +391,16 @@ impl Label {
     }
 }
 
-impl Ident {
-    /// Parse identifier `ident`
-    #[inline]
+impl IdentOrReg {
+    /// Parse register name 'a' or identifier `ident`
     fn parse<'s>(lex: &Lexer<'s, Token>) -> Self {
         let i = lex.slice().to_string();
-        Self(i.into_boxed_str())
+
+        if let Some(reg) = is_register(&i) {
+            Self::Reg(reg)
+        } else {
+            Self::Ident(Ident(i.into_boxed_str()))
+        }
     }
 }
 

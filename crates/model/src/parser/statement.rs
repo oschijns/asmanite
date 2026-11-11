@@ -624,19 +624,19 @@ mod tests {
     use super::*;
     use crate::{
         ToBox,
-        lexer::token::Token,
+        lexer::{register::*, token::Token},
         parser::{
             composite_type::TypeUsed,
             expression::{AssignOp, BinaryOp},
             memory::{MemStorage, ParamMem},
             path::Path,
         },
-        utils::register_dict::init_test_registers,
     };
     use chumsky::input::{Input, Stream};
     use logos::Logos;
 
     fn parse_var_decl(source: &str) -> VarDecl {
+        init_test_registers();
         let tokens = Token::lexer(source)
             .spanned()
             .map(|(token, span)| (token.expect("test source should lex"), span.into()));
@@ -650,6 +650,7 @@ mod tests {
     }
 
     fn parse_statement(source: &str) -> Statement {
+        init_test_registers();
         let tokens = Token::lexer(source)
             .spanned()
             .map(|(token, span)| (token.expect("test source should lex"), span.into()));
@@ -663,6 +664,7 @@ mod tests {
     }
 
     fn parse_if_else(source: &str) -> IfElse {
+        init_test_registers();
         let tokens = Token::lexer(source)
             .spanned()
             .map(|(token, span)| (token.expect("test source should lex"), span.into()));
@@ -676,6 +678,7 @@ mod tests {
     }
 
     fn parse_block(source: &str) -> Vec<Statement> {
+        init_test_registers();
         let tokens = Token::lexer(source)
             .spanned()
             .map(|(token, span)| (token.expect("test source should lex"), span.into()));
@@ -689,6 +692,7 @@ mod tests {
     }
 
     fn parse_loop(source: &str) -> Loop {
+        init_test_registers();
         let tokens = Token::lexer(source)
             .spanned()
             .map(|(token, span)| (token.expect("test source should lex"), span.into()));
@@ -754,6 +758,7 @@ mod tests {
 
     #[test]
     fn requires_a_semicolon() {
+        init_test_registers();
         let source = "var my_var: u8";
         let tokens = Token::lexer(source)
             .spanned()

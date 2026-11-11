@@ -1,8 +1,10 @@
 use crate::{
     ToBox,
-    lexer::{atom::*, token::Token},
-    parser::path::{Path, parser_path},
-    utils::register_dict::{RegIdent, is_path_register},
+    lexer::{atom::*, register::RegIdent, token::Token},
+    parser::{
+        memory::parser_register,
+        path::{Path, parser_path},
+    },
 };
 use chumsky::{
     IterParser, Parser, error::Rich, extra, input::ValueInput, pratt,
@@ -181,10 +183,7 @@ where
                 .then(arguments.or_not())
                 .map(|(callee, args)| match args {
                     Some(args) => Expr::Call(FunctionCall::new(callee, args).to_box()),
-                    None => match is_path_register(&callee) {
-                        Some(register) => Expr::Register(register),
-                        None => Expr::Var(callee),
-                    },
+                    None => Expr::Var(callee),
                 });
 
         let grouped = expr
@@ -193,7 +192,8 @@ where
             .map(|inner| Expr::Group(inner.to_box()));
 
         // node tokens to be associated with operators
-        let atom = literal.or(path).or(grouped);
+        let register = parser_register().boxed().map(Expr::Register);
+        let atom = literal.or(register).or(path).or(grouped);
 
         // Collect parsers for operators
         // Binary operators have various level of precedences
@@ -322,12 +322,13 @@ fn gen_op_bitmasks() -> HashMap<(Associativity, Precedence), u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lexer::register::init_test_registers;
     use crate::parser::path::Path;
-    use crate::utils::register_dict::init_test_registers;
     use chumsky::input::{Input, Stream};
     use logos::Logos;
 
     fn parse_expr(source: &str) -> Expr {
+        init_test_registers();
         let tokens = Token::lexer(source)
             .spanned()
             .map(|(token, span)| (token.expect("test source should lex"), span.into()));
@@ -341,6 +342,7 @@ mod tests {
     }
 
     fn parse_call(source: &str) -> FunctionCall {
+        init_test_registers();
         let tokens = Token::lexer(source)
             .spanned()
             .map(|(token, span)| (token.expect("test source should lex"), span.into()));
