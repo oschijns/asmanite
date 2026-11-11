@@ -417,31 +417,31 @@ mod tests {
         let StmtInner::Bank(bank) = statement.inner else {
             panic!("expected in-bank statement");
         };
-        assert_eq!(bank.ident, Ident::new("my_bank"));
+        assert_eq!(bank.ident, "my_bank".into());
         assert_eq!(bank.elements.len(), 4);
         assert!(matches!(
             &bank.elements[0],
             BankElement::Var(variable)
-                if variable.ident == Ident::new("first")
+                if variable.ident == "first".into()
                     //&& variable.type_used.primitive == primitive::U8
         ));
         assert!(matches!(
             &bank.elements[1],
             BankElement::Func(function)
-                if function.ident == Ident::new("b")
+                if function.ident == "b".into()
                     && function.parameters.is_empty()
                     && function.block.is_empty()
         ));
         assert!(matches!(
             &bank.elements[2],
             BankElement::Var(variable)
-                if variable.ident == Ident::new("second")
+                if variable.ident == "second".into()
                     //&& variable.type_used.primitive == primitive::U8
         ));
         assert!(matches!(
             &bank.elements[3],
             BankElement::Func(function)
-                if function.ident == Ident::new("d")
+                if function.ident == "d".into()
                     && function.parameters.is_empty()
                     && function.block.is_empty()
         ));
@@ -472,12 +472,12 @@ mod tests {
         let ParamType::Memory(memory) = fixed.param_type else {
             panic!("expected memory parameter");
         };
-        assert_eq!(memory.ident, Ident::new("tata"));
+        assert_eq!(memory.ident, "tata".into());
         //assert_eq!(memory.type_used.primitive, primitive::U8);
         assert!(matches!(memory.storage, MemStorage::At(_)));
         assert_eq!(
             fixed.default_value,
-            Some(Box::new(Expr::Lit(Literal::Int(IntLit(50)))))
+            Some(Expr::Lit(Literal::Int(IntLit(50))).to_box())
         );
 
         let register = parser_param_decl()
@@ -487,7 +487,7 @@ mod tests {
         assert_eq!(register.param_type, ParamType::Register("a".into()));
         assert_eq!(
             register.default_value,
-            Some(Box::new(Expr::Lit(Literal::Int(IntLit(20)))))
+            Some(Expr::Lit(Literal::Int(IntLit(20))).to_box())
         );
 
         let register = parser_param_decl()
@@ -551,7 +551,7 @@ mod tests {
             ReturnType::Memory(ReturnMem {
                 type_used: TypeUsed::Complex(complex),
                 storage: MemStorage::Undefined,
-            }) if complex.ident == crate::parser::path::Path::new(&["ordinary_type"])
+            }) if complex.ident == "ordinary_type".into()
         ));
     }
 }

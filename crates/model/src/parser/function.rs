@@ -164,7 +164,7 @@ mod tests {
     fn parses_function_without_return_type_or_statements() {
         let function = parse_function("fn empty() {}");
 
-        assert_eq!(function.ident, Ident::new("empty"));
+        assert_eq!(function.ident, "empty".into());
         assert!(function.parameters.is_empty());
         assert_eq!(function.return_type, None);
         assert!(function.block.is_empty());
@@ -200,19 +200,20 @@ mod tests {
         let ParamType::Memory(parameter) = &function.parameters[0].param_type else {
             panic!("expected memory parameter");
         };
-        assert_eq!(parameter.ident, Ident::new("source"));
+        assert_eq!(parameter.ident, "source".into());
         //assert_eq!(parameter.type_used.primitive, primitive::U16);
         assert!(matches!(parameter.storage, MemStorage::At(_)));
         assert_eq!(
             function.parameters[0].default_value,
-            Some(Box::new(Expr::Lit(Literal::Int(IntLit(7)))))
+            Some(Expr::Lit(Literal::Int(IntLit(7))).to_box())
         );
         assert_eq!(
             function.return_type,
-            Some(Box::new(ReturnType::Memory(ReturnMem::new(
+            Some(ReturnType::Memory(ReturnMem::new(
                 TypeUsed::Prim(primitive::U8,),
-                MemStorage::In(Ident::new("zeropage")),
-            ))))
+                MemStorage::In("zeropage".into()),
+            ))
+            .to_box())
         );
     }
 

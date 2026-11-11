@@ -629,7 +629,6 @@ mod tests {
             composite_type::TypeUsed,
             expression::{AssignOp, BinaryOp},
             memory::{MemStorage, ParamMem},
-            path::Path,
         },
     };
     use chumsky::input::{Input, Stream};
@@ -736,9 +735,7 @@ mod tests {
 
         assert_eq!(
             declaration.storage,
-            MemStorage::At(Box::new(Expr::Var(crate::parser::path::Path::new(&[
-                "ADDRESS"
-            ]))))
+            MemStorage::At(Expr::Var("ADDRESS".into()).to_box())
         );
         assert!(matches!(
             declaration.assign_expr,
@@ -752,7 +749,7 @@ mod tests {
 
         assert_eq!(
             declaration.storage,
-            MemStorage::At(Box::new(Expr::Lit(Literal::Int(IntLit(16)))))
+            MemStorage::At(Expr::Lit(Literal::Int(IntLit(16))).to_box())
         );
     }
 
@@ -896,7 +893,7 @@ else                 { var third:  u8; }
             StmtInner::Return(Return::with_value(Expr::Binary(
                 BinaryOp::new(
                     operator::ADD,
-                    Expr::Var(Path::new(&["result"])),
+                    Expr::Var("result".into()),
                     Expr::Lit(Literal::Int(IntLit(1))),
                 )
                 .to_box()
@@ -953,16 +950,16 @@ else                 { var third:  u8; }
 
         assert_eq!(
             switch.variable,
-            Expr::Var(crate::parser::path::Path::new(&["value"]))
+            Expr::Var("value".into())
         );
         assert_eq!(switch.cases.len(), 3);
         assert_eq!(
             switch.cases[0].condition,
-            Some(Box::new(Expr::Lit(Literal::Int(IntLit(0)))))
+            Some(Expr::Lit(Literal::Int(IntLit(0))).to_box())
         );
         assert_eq!(
             switch.cases[1].condition,
-            Some(Box::new(Expr::Lit(Literal::Int(IntLit(1)))))
+            Some(Expr::Lit(Literal::Int(IntLit(1))).to_box())
         );
         assert!(switch.cases[2].condition.is_none());
         assert!(matches!(switch.cases[0].block[0].inner, StmtInner::Var(_)));
@@ -1009,9 +1006,9 @@ else                 { var third:  u8; }
         else {
             panic!("expected variable iterator");
         };
-        assert_eq!(ident, Ident::new("i"));
+        assert_eq!(ident, "i".into());
         assert_eq!(type_used, TypeUsed::Prim(primitive::U8));
-        assert_eq!(storage, MemStorage::In(Ident::new("zeropage")));
+        assert_eq!(storage, MemStorage::In("zeropage".into()));
         assert_eq!(header.range, Range::excl());
         assert_eq!(header.start, Expr::Lit(Literal::Int(IntLit(0))));
         assert_eq!(header.end, Expr::Lit(Literal::Int(IntLit(10))));
@@ -1035,16 +1032,16 @@ else                 { var third:  u8; }
         };
         assert_eq!(
             storage,
-            MemStorage::At(Box::new(Expr::Lit(Literal::Int(IntLit(256)))))
+            MemStorage::At(Expr::Lit(Literal::Int(IntLit(256))).to_box())
         );
-        assert_eq!(ident, Ident::new("i"));
+        assert_eq!(ident, "i".into());
         assert_eq!(type_used, TypeUsed::Prim(primitive::U8));
         assert_eq!(header.range, Range::incl());
         assert_eq!(header.start, Expr::Lit(Literal::Int(IntLit(10))));
         assert_eq!(header.end, Expr::Lit(Literal::Int(IntLit(100))));
         assert_eq!(
             header.step,
-            Some(Box::new(Expr::Lit(Literal::Int(IntLit(2)))))
+            Some(Expr::Lit(Literal::Int(IntLit(2))).to_box())
         );
     }
 

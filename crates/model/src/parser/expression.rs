@@ -323,7 +323,6 @@ fn gen_op_bitmasks() -> HashMap<(Associativity, Precedence), u64> {
 mod tests {
     use super::*;
     use crate::lexer::register::init_test_registers;
-    use crate::parser::path::Path;
     use chumsky::input::{Input, Stream};
     use logos::Logos;
 
@@ -360,7 +359,7 @@ mod tests {
         assert_eq!(
             parse_call("my::func(a, 2)"),
             FunctionCall::new(
-                Path::new(&["my", "func"]),
+                "my::func".into(),
                 vec![parse_expr("a"), parse_expr("2")]
             )
         );
@@ -373,11 +372,11 @@ mod tests {
         assert_eq!(parse_expr("a"), Expr::Register("a".into()));
         assert_eq!(
             parse_expr("ordinary_name"),
-            Expr::Var(Path::new(&["ordinary_name"]))
+            Expr::Var("ordinary_name".into())
         );
         assert_eq!(
             parse_expr("module::func"),
-            Expr::Var(Path::new(&["module", "func"]))
+            Expr::Var("module::func".into())
         );
         assert!(matches!(parse_expr("func()"), Expr::Call(_)));
     }
@@ -395,8 +394,8 @@ mod tests {
                     Expr::Binary(
                         BinaryOp::new(
                             Operator::new(OpType::Mul),
-                            Expr::Var(Path::new(&["b"])),
-                            Expr::Var(Path::new(&["c"]))
+                            Expr::Var("b".into()),
+                            Expr::Var("c".into())
                         )
                         .to_box(),
                     ),
@@ -417,7 +416,7 @@ mod tests {
                             BinaryOp::new(
                                 Operator::new(OpType::Add),
                                 Expr::Register("a".into()),
-                                Expr::Var(Path::new(&["b"])),
+                                Expr::Var("b".into()),
                             )
                             .to_box()
                         )
@@ -474,8 +473,8 @@ mod tests {
     #[test]
     fn parses_chained_assignments_right_associatively() {
         let a = Expr::Register("a".into());
-        let b = Expr::Var(Path::new(&["b"]));
-        let c = Expr::Var(Path::new(&["c"]));
+        let b = Expr::Var("b".into());
+        let c = Expr::Var("c".into());
 
         assert_eq!(
             parse_expr("a = b = c"),
@@ -519,7 +518,7 @@ mod tests {
                     BinaryOp::new(
                         Operator::carry(op_type),
                         Expr::Register("a".into()),
-                        Expr::Var(Path::new(&["b"])),
+                        Expr::Var("b".into()),
                     )
                     .to_box()
                 ),
@@ -545,7 +544,7 @@ mod tests {
                     AssignOp::new(
                         Assign::op_carry(op_type),
                         Expr::Register("a".into()),
-                        Expr::Var(Path::new(&["b"])),
+                        Expr::Var("b".into()),
                     )
                     .to_box()
                 ),
