@@ -5,6 +5,7 @@ use crate::{
         token::{IdentOrReg, Token},
     },
     parser::{
+        composite_type::{Generics, parser_generics},
         memory::{
             MemStorage, ParamDecl, ReturnType, parser_mem_storage, parser_param_decl,
             parser_return_type,
@@ -24,6 +25,9 @@ use chumsky::{
 pub struct FuncDecl {
     /// Function identifier
     pub ident: Ident,
+
+    /// Generics associated with the function
+    pub generics: Option<Generics>,
 
     /// Where to place the function
     pub storage: MemStorage,
@@ -49,11 +53,19 @@ impl FuncDecl {
     ) -> Self {
         Self {
             ident,
+            generics: None,
             storage,
             parameters: parameters.into_boxed_slice(),
             return_type: None,
             block: block.into_boxed_slice(),
         }
+    }
+
+    /// Add generics to the function
+    #[inline]
+    pub fn with_generics(&mut self, generics: Generics) -> &Self {
+        self.generics = Some(generics);
+        self
     }
 
     /// Add the return type if any
@@ -95,6 +107,7 @@ where
         .ignore_then(select! {
             Token::Ident(IdentOrReg::Ident(ident)) => ident
         })
+        .then(parser_generics().or_not())
         .then(parser_mem_storage())
         .then(
             parser_param_decl()
@@ -109,13 +122,18 @@ where
                 .or_not(),
         )
         .then(parser_block(statement))
-        .map(|((((ident, storage), parameters), return_type), block)| {
-            let mut func = FuncDecl::new(ident, storage, parameters, block);
-            if let Some(rt) = return_type {
-                func.with_return(rt);
-            }
-            func
-        })
+        .map(
+            |(((((ident, generics), storage), parameters), return_type), block)| {
+                let mut func = FuncDecl::new(ident, storage, parameters, block);
+                if let Some(generics) = generics {
+                    func.with_generics(generics);
+                }
+                if let Some(rt) = return_type {
+                    func.with_return(rt);
+                }
+                func
+            },
+        )
 }
 
 // MARK: Tests
@@ -124,7 +142,7 @@ where
 mod tests {
     use super::*;
     use crate::lexer::register::init_test_registers;
-    use crate::parser::composite_type::TypeUsed;
+    use crate::parser::composite_type::{GenericParam, IdentAndType, TypeUsed};
     use crate::parser::memory::{MemStorage, ParamMem, ReturnMem};
     use crate::parser::statement::StmtInner;
     use crate::parser::{expression::Expr, memory::ParamType};
@@ -209,6 +227,27 @@ mod tests {
         );
         assert_eq!(
             fixed.return_type,
+            Some(ReturnType::Register("x".into()).to_box())
+        );
+    }
+
+    #[test]
+    fn parses_function_generics_before_storage() {
+        let function = parse_function("fn my_func<T, const S: i16> in prog_bank () -> x { }");
+
+        assert_eq!(
+            function.generics,
+            Some(crate::parser::composite_type::Generics::new(vec![
+                GenericParam::Type("T".into()),
+                GenericParam::Const(IdentAndType::new(
+                    "S".into(),
+                    TypeUsed::Prim(primitive::I16),
+                )),
+            ]))
+        );
+        assert_eq!(function.storage, MemStorage::In("prog_bank".into()));
+        assert_eq!(
+            function.return_type,
             Some(ReturnType::Register("x".into()).to_box())
         );
     }

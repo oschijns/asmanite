@@ -549,7 +549,7 @@ mod tests {
                 .into_result()
                 .expect("ordinary named return type should remain a memory type"),
             ReturnType::Memory(ReturnMem {
-                type_used: TypeUsed::Complex(complex),
+                type_used: TypeUsed::Named(complex),
                 storage: MemStorage::Undefined,
             }) if complex.ident == "ordinary_type".into()
         ));
