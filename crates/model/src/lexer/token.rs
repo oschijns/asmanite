@@ -50,6 +50,14 @@ pub enum Token {
     #[token("_", priority = 10)]
     Anonymous,
 
+    /// Ampersat marker
+    #[token("@")]
+    Ampersat,
+
+    /// Hash sign marker
+    #[token("#")]
+    Hash,
+
     /// Semi-Colon
     #[token(";")]
     Semicolon,
@@ -145,9 +153,6 @@ pub enum Token {
     #[token("..=", |_| Range::incl())]
     Range(Range),
 
-    // Address Operator
-    //#[token("@")]
-    //Address,
     /// Declare a variable/constant
     #[token("var"   , |_| VarType::Var   )]
     #[token("let"   , |_| VarType::Let   )]
@@ -161,13 +166,25 @@ pub enum Token {
     #[token("union" , |_| TypeDef::Union )]
     TypeDef(TypeDef),
 
-    /// Declare a function
-    #[token("fn")]
-    Func,
-
     /// Declare a module
     #[token("mod")]
     Mod,
+
+    /// Inline marker for function or for-loop
+    #[token("inline")]
+    Inline,
+
+    /// Implementation block
+    #[token("impl")]
+    Impl,
+
+    /// Operator overloading
+    #[token("op")]
+    Overloading,
+
+    /// Declare a function
+    #[token("fn")]
+    Func,
 
     /// Conditional branching
     #[token("if")]

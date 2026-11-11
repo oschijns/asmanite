@@ -23,6 +23,10 @@ use chumsky::{
 /// Function declaration
 #[derive(Debug, Clone, PartialEq)]
 pub struct FuncDecl {
+    /// Should the function body be placed inline at the call site ?
+    /// Note: This option is incompatible with a storage specifier.
+    pub inline: bool,
+
     /// Function identifier
     pub ident: Ident,
 
@@ -52,6 +56,7 @@ impl FuncDecl {
         block: Vec<Statement>,
     ) -> Self {
         Self {
+            inline: false,
             ident,
             generics: None,
             storage,

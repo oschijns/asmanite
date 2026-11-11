@@ -221,6 +221,9 @@ impl ToBox for WhileLoopHeader {}
 /// Header of a for loop
 #[derive(Debug, Clone, PartialEq)]
 pub struct ForLoopHeader {
+    /// Should the for-loop be unrolled inline ?
+    pub inline: bool,
+
     /// Define the iterator used
     pub iter: ParamType,
 
@@ -243,6 +246,7 @@ impl ForLoopHeader {
     #[inline]
     pub fn new(iter: ParamType, range: Range, start: Expr, end: Expr) -> Self {
         Self {
+            inline: false,
             iter,
             range,
             start,
