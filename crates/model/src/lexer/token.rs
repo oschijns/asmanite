@@ -172,6 +172,22 @@ pub enum Token {
     #[token("mod")]
     Mod,
 
+    /// Import modules, types, functions, or variables
+    #[token("use")]
+    Use,
+
+    /// Root of the module
+    #[token("root")]
+    Root,
+
+    /// Self
+    #[token("self")]
+    Self_,
+
+    /// Parent module (not supported in use paths)
+    #[token("super")]
+    Super,
+
     /// Inline marker for functions or for-loop
     #[token("inline")]
     Inline,

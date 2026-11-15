@@ -8,6 +8,7 @@ use crate::{
             InBank, ParamType, VarDecl, parser_in_bank_with_function, parser_param_type,
             parser_var_decl,
         },
+        module::{UseNode, parser_use},
     },
 };
 use chumsky::{
@@ -40,6 +41,9 @@ impl Statement {
 /// Instruction that can appear in a block of code
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtInner {
+    /// Use statement
+    Use(Box<UseNode>),
+
     /// In-bank block for variable declaration
     Bank(Box<InBank>),
 
@@ -348,6 +352,9 @@ where
         let loop_ctrl = parser_loop_ctrl().map(StmtInner::LoopCtrl).boxed();
         let goto = parser_goto().map(StmtInner::Goto).boxed();
         let return_stmt = parser_return().map(StmtInner::Return).boxed();
+        let use_stmt = parser_use()
+            .map(|use_node| StmtInner::Use(use_node.to_box()))
+            .boxed();
 
         let statement = bank
             .or(var_decl)
@@ -357,6 +364,7 @@ where
             .or(loop_ctrl)
             .or(goto)
             .or(return_stmt)
+            .or(use_stmt)
             .or(defer)
             .or(instr);
         select! { Token::Label(label) => label }
