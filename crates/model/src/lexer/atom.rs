@@ -687,6 +687,10 @@ pub enum TypeDef {
     /// Memory Union
     #[strum(serialize = "union")]
     Union,
+
+    /// Type alias
+    #[strum(serialize = "type")]
+    Alias,
 }
 impl_display!(TypeDef, str);
 

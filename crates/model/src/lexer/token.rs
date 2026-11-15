@@ -165,6 +165,7 @@ pub enum Token {
     #[token("struct", |_| TypeDef::Struct)]
     #[token("enum"  , |_| TypeDef::Enum  )]
     #[token("union" , |_| TypeDef::Union )]
+    #[token("type"  , |_| TypeDef::Alias )]
     TypeDef(TypeDef),
 
     /// Declare a module

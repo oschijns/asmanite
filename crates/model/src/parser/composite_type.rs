@@ -152,6 +152,19 @@ pub enum GenericUsed {
     Const(Expr),
 }
 
+/// Type declaration
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypeDecl {
+    /// Struct / union declaration
+    Composite(Box<CompositeType>),
+
+    /// Enum declaration
+    Enum(Box<EnumType>),
+
+    /// Type alias declaration
+    Alias(Box<TypeAlias>),
+}
+
 /// Struct / Union type
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompositeType {
@@ -257,16 +270,54 @@ impl ToBox for EnumType {}
 /// Note: used by fields in a composite type or as generic constant
 #[derive(Debug, Clone, PartialEq)]
 pub struct IdentAndType {
+    /// Identifier
     pub ident: Ident,
+
+    /// Type
     pub type_used: TypeUsed,
 }
 
 impl IdentAndType {
     /// Pair an identifier with a type
+    #[inline]
     pub fn new(ident: Ident, type_used: TypeUsed) -> Self {
         Self { ident, type_used }
     }
 }
+
+/// Define an alias for a type
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeAlias {
+    /// Name of the alias
+    pub name: Ident,
+
+    /// Generics of the alias
+    pub generics: Option<Generics>,
+
+    /// Type used by the alias
+    pub type_used: TypeUsed,
+}
+
+impl TypeAlias {
+    /// Create a new type alias
+    #[inline]
+    pub fn new(name: Ident, type_used: TypeUsed) -> Self {
+        Self {
+            name,
+            generics: None,
+            type_used,
+        }
+    }
+
+    /// Add generics to the alias
+    #[inline]
+    pub fn with_generics(&mut self, generics: Generics) -> &Self {
+        self.generics = Some(generics);
+        self
+    }
+}
+
+impl ToBox for TypeAlias {}
 
 // MARK: Parsers
 
@@ -488,6 +539,29 @@ where
         })
 }
 
+/// Parse a type alias declaration such as `type Alias<T> = path::Type<T>;`.
+pub fn parser_type_alias<'tok, 'src: 'tok, I>()
+-> impl Parser<'tok, I, TypeAlias, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    just(Token::TypeDef(TypeDef::Alias))
+        .ignore_then(select! {
+            Token::Ident(IdentOrReg::Ident(ident)) => ident,
+        })
+        .then(parser_generics().or_not())
+        .then_ignore(just(Token::Assign(Assign::new())))
+        .then(parser_type_used())
+        .then_ignore(just(Token::Semicolon))
+        .map(|((name, generics), type_used)| {
+            let mut alias = TypeAlias::new(name, type_used);
+            if let Some(generics) = generics {
+                alias.with_generics(generics);
+            }
+            alias
+        })
+}
+
 /// Parse an array type such as `[u8; 3]`.
 pub fn parser_array_type<'tok, 'src: 'tok, I>()
 -> impl Parser<'tok, I, ArrayType, extra::Err<Rich<'tok, Token>>>
@@ -641,6 +715,72 @@ mod tests {
             .parse(input)
             .into_result()
             .expect("generic parameters should parse")
+    }
+
+    fn parse_type_alias(source: &str) -> TypeAlias {
+        let tokens = Token::lexer(source)
+            .spanned()
+            .map(|(token, span)| (token.expect("test source should lex"), span.into()));
+        let input =
+            Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
+
+        parser_type_alias()
+            .parse(input)
+            .into_result()
+            .expect("type alias should parse")
+    }
+
+    #[test]
+    fn parses_type_alias_to_primitive() {
+        assert_eq!(
+            parse_type_alias("type Alias = u16;"),
+            TypeAlias::new("Alias".into(), TypeUsed::Prim(primitive::U16))
+        );
+    }
+
+    #[test]
+    fn parses_generic_type_alias() {
+        assert_eq!(
+            parse_type_alias("type MyAlias<G> = path_to_type::MyType<G, 3>;"),
+            TypeAlias {
+                name: "MyAlias".into(),
+                generics: Some(Generics::new(vec![GenericParam::Type("G".into())])),
+                type_used: TypeUsed::Named(
+                    NamedType {
+                        ident: Path::new(&["path_to_type", "MyType"]),
+                        generics: Some(
+                            vec![
+                                GenericUsed::Type(TypeUsed::Named(
+                                    NamedType::new("G".into()).to_box(),
+                                )),
+                                GenericUsed::Const(Expr::Lit(Literal::Int(IntLit(3)))),
+                            ]
+                            .into_boxed_slice(),
+                        ),
+                    }
+                    .to_box()
+                ),
+            }
+        );
+    }
+
+    #[test]
+    fn parses_type_alias_to_tuple_and_function() {
+        let alias = parse_type_alias("type Callback = (u8, fn(u16) -> i32);");
+
+        assert_eq!(
+            alias.type_used,
+            TypeUsed::Tuple(TupleType::new(vec![
+                TypeUsed::Prim(primitive::U8),
+                TypeUsed::Function(
+                    FunctionType {
+                        parameters: vec![TypeUsed::Prim(primitive::U16)].into_boxed_slice(),
+                        return_type: Some(TypeUsed::Prim(primitive::I32)),
+                    }
+                    .to_box()
+                ),
+            ]))
+        );
     }
 
     #[test]
