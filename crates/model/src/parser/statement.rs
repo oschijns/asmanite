@@ -632,7 +632,7 @@ mod tests {
         parser::{
             composite_type::TypeUsed,
             expression::{AssignOp, BinaryOp},
-            memory::{MemStorage, ParamMem},
+            memory::{MemStorage, ParamMem, ParamStorage},
         },
     };
     use chumsky::input::{Input, Stream};
@@ -1009,7 +1009,7 @@ else                 { var third:  u8; }
         };
         assert_eq!(ident, "i".into());
         assert_eq!(type_used, TypeUsed::Prim(primitive::U8));
-        assert_eq!(storage, MemStorage::In("zeropage".into()));
+        assert_eq!(storage, ParamStorage::In("zeropage".into()));
         assert_eq!(header.range, Range::excl());
         assert_eq!(header.start, Expr::Lit(Literal::Int(IntLit(0))));
         assert_eq!(header.end, Expr::Lit(Literal::Int(IntLit(10))));
@@ -1033,7 +1033,7 @@ else                 { var third:  u8; }
         };
         assert_eq!(
             storage,
-            MemStorage::At(Expr::Lit(Literal::Int(IntLit(256))).to_box())
+            ParamStorage::At(Expr::Lit(Literal::Int(IntLit(256))).to_box())
         );
         assert_eq!(ident, "i".into());
         assert_eq!(type_used, TypeUsed::Prim(primitive::U8));

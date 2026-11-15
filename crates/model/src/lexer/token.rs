@@ -156,6 +156,7 @@ pub enum Token {
     /// Declare a variable/constant
     #[token("var"   , |_| VarType::Var   )]
     #[token("let"   , |_| VarType::Let   )]
+    #[token("stack" , |_| VarType::Stack )]
     #[token("static", |_| VarType::Static)]
     #[token("const" , |_| VarType::Const )]
     VarDecl(VarType),
@@ -170,9 +171,13 @@ pub enum Token {
     #[token("mod")]
     Mod,
 
-    /// Inline marker for function or for-loop
+    /// Inline marker for functions or for-loop
     #[token("inline")]
     Inline,
+
+    /// Recursive marker for functions
+    #[token("recursive")]
+    Recursive,
 
     /// Implementation block
     #[token("impl")]

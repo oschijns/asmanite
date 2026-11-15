@@ -173,13 +173,13 @@ pub struct ParamMem {
     pub type_used: TypeUsed,
 
     /// Storage location for the variable
-    pub storage: MemStorage,
+    pub storage: ParamStorage,
 }
 
 impl ParamMem {
     /// Construct a parameter bound to a memory location
     #[inline]
-    pub fn new(ident: Ident, type_used: TypeUsed, storage: MemStorage) -> Self {
+    pub fn new(ident: Ident, type_used: TypeUsed, storage: ParamStorage) -> Self {
         Self {
             ident,
             type_used,
@@ -207,14 +207,40 @@ pub struct ReturnMem {
     pub type_used: TypeUsed,
 
     /// Storage location for the variable
-    pub storage: MemStorage,
+    pub storage: ParamStorage,
 }
 
 impl ReturnMem {
     /// Construct a parameter bound to a memory location
     #[inline]
-    pub fn new(type_used: TypeUsed, storage: MemStorage) -> Self {
+    pub fn new(type_used: TypeUsed, storage: ParamStorage) -> Self {
         Self { type_used, storage }
+    }
+}
+
+/// Specify where to store the function parameter or the return value
+#[derive(Debug, Clone, PartialEq)]
+pub enum ParamStorage {
+    /// Find an available memory location in the given bank.
+    In(Ident),
+
+    /// Fixed address for the parameter.
+    /// Provided address must be solvable at compile-time.
+    At(Box<Expr>),
+
+    /// Parameter is pulled or pushed into the stack.
+    Stack,
+
+    /// Parameter is evaluated at compile-time.
+    /// Note: Only used for inline functions, where the parameter is replaced by its value at compile-time.
+    CompTime,
+}
+
+impl ParamStorage {
+    /// Create "at" variant of the parameter storage
+    #[inline]
+    pub fn new_at(at: Expr) -> Self {
+        Self::At(Box::new(at))
     }
 }
 
@@ -310,15 +336,31 @@ pub fn parser_param_type<'tok, 'src: 'tok, I>()
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
-    let memory = select! { Token::Ident(IdentOrReg::Ident(ident)) => ident }
-        .then_ignore(just(Token::Colon))
-        .then(parser_type_used())
-        .then(parser_mem_storage())
-        .map(|((ident, type_used), storage)| {
-            ParamType::Memory(ParamMem::new(ident, type_used, storage))
-        });
+    let parse_memory = || {
+        select! { Token::Ident(IdentOrReg::Ident(ident)) => ident }
+            .then_ignore(just(Token::Colon))
+            .then(parser_type_used())
+    };
 
-    memory.or(parser_register().map(ParamType::Register))
+    let memory =
+        parse_memory()
+            .then(parser_param_storage())
+            .map(|((ident, type_used), storage)| {
+                ParamType::Memory(ParamMem::new(ident, type_used, storage))
+            });
+    let stack_memory = just(Token::VarDecl(VarType::Stack))
+        .ignore_then(parse_memory())
+        .map(|(ident, type_used)| {
+            ParamType::Memory(ParamMem::new(ident, type_used, ParamStorage::Stack))
+        });
+    let comptime_memory = just(Token::VarDecl(VarType::Let))
+        .ignore_then(parse_memory())
+        .map(|(ident, type_used)| {
+            ParamType::Memory(ParamMem::new(ident, type_used, ParamStorage::CompTime))
+        });
+    let register = parser_register().map(ParamType::Register);
+
+    memory.or(stack_memory).or(comptime_memory).or(register)
 }
 
 /// Parse a parameter declaration, optionally initialized with a default value.
@@ -347,7 +389,7 @@ where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
     let memory = parser_type_used()
-        .then(parser_mem_storage())
+        .then(parser_param_storage())
         .map(|(type_used, storage)| ReturnType::Memory(ReturnMem::new(type_used, storage)));
 
     parser_register().map(ReturnType::Register).or(memory)
@@ -368,6 +410,21 @@ where
             .map(MemStorage::new_at))
         .or_not()
         .map(Option::unwrap_or_default)
+}
+
+/// Parse a required memory placement clause for a parameter or return value.
+pub(crate) fn parser_param_storage<'tok, 'src: 'tok, I>()
+-> impl Parser<'tok, I, ParamStorage, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    just(Token::In)
+        .ignore_then(select! {
+            Token::Ident(IdentOrReg::Ident(ident)) => ParamStorage::In(ident)
+        })
+        .or(just(Token::At)
+            .ignore_then(parser_expr(false))
+            .map(ParamStorage::new_at))
 }
 
 // MARK: Tests
@@ -460,7 +517,7 @@ mod tests {
             ParamType::Memory(ParamMem::new(
                 "toto".into(),
                 TypeUsed::Prim(primitive::U8),
-                MemStorage::In("zeropage".into()),
+                ParamStorage::In("zeropage".into()),
             ))
         );
         assert_eq!(named.default_value, None);
@@ -474,10 +531,43 @@ mod tests {
         };
         assert_eq!(memory.ident, "tata".into());
         //assert_eq!(memory.type_used.primitive, primitive::U8);
-        assert!(matches!(memory.storage, MemStorage::At(_)));
+        assert!(matches!(memory.storage, ParamStorage::At(_)));
         assert_eq!(
             fixed.default_value,
             Some(Expr::Lit(Literal::Int(IntLit(50))).to_box())
+        );
+
+        let stack = parser_param_decl()
+            .parse(token_input("stack bb: u8"))
+            .into_result()
+            .expect("stack parameter should parse");
+        assert_eq!(
+            stack.param_type,
+            ParamType::Memory(ParamMem::new(
+                "bb".into(),
+                TypeUsed::Prim(primitive::U8),
+                ParamStorage::Stack,
+            ))
+        );
+
+        let comptime_param = parser_param_decl()
+            .parse(token_input("let bb: u8"))
+            .into_result()
+            .expect("compile-time parameter should parse");
+        assert_eq!(
+            comptime_param.param_type,
+            ParamType::Memory(ParamMem::new(
+                "bb".into(),
+                TypeUsed::Prim(primitive::U8),
+                ParamStorage::CompTime,
+            ))
+        );
+
+        assert!(
+            parser_param_decl()
+                .parse(token_input("bb: u8"))
+                .into_result()
+                .is_err()
         );
 
         let register = parser_param_decl()
@@ -517,7 +607,7 @@ mod tests {
             banked,
             ReturnType::Memory(ReturnMem::new(
                 TypeUsed::Prim(primitive::U8),
-                MemStorage::In("zeropage".into()),
+                ParamStorage::In("zeropage".into()),
             ))
         );
 
@@ -529,7 +619,7 @@ mod tests {
             fixed,
             ReturnType::Memory(ReturnMem {
                 type_used: TypeUsed::Prim(primitive::U8),
-                storage: MemStorage::At(_)
+                storage: ParamStorage::At(_)
             })
         ));
 
@@ -543,15 +633,11 @@ mod tests {
             );
         }
 
-        assert!(matches!(
+        assert!(
             parser_return_type()
                 .parse(token_input("ordinary_type"))
                 .into_result()
-                .expect("ordinary named return type should remain a memory type"),
-            ReturnType::Memory(ReturnMem {
-                type_used: TypeUsed::Named(complex),
-                storage: MemStorage::Undefined,
-            }) if complex.ident == "ordinary_type".into()
-        ));
+                .is_err()
+        );
     }
 }

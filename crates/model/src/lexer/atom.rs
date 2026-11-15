@@ -658,6 +658,10 @@ pub enum VarType {
     #[strum(serialize = "let")]
     Let,
 
+    /// Stack based variable
+    #[strum(serialize = "stack")]
+    Stack,
+
     /// Static variable
     #[strum(serialize = "static")]
     Static,

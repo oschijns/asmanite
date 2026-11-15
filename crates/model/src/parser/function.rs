@@ -23,9 +23,8 @@ use chumsky::{
 /// Function declaration
 #[derive(Debug, Clone, PartialEq)]
 pub struct FuncDecl {
-    /// Should the function body be placed inline at the call site ?
-    /// Note: This option is incompatible with a storage specifier.
-    pub inline: bool,
+    /// Define if the function is inline or recursive
+    pub marker: FuncMarker,
 
     /// Function identifier
     pub ident: Ident,
@@ -56,7 +55,7 @@ impl FuncDecl {
         block: Vec<Statement>,
     ) -> Self {
         Self {
-            inline: false,
+            marker: FuncMarker::None,
             ident,
             generics: None,
             storage,
@@ -82,6 +81,22 @@ impl FuncDecl {
 }
 
 impl ToBox for FuncDecl {}
+
+/// Function marker (inline, recursive, etc.)
+#[repr(u8)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum FuncMarker {
+    /// Function has no special marker
+    #[default]
+    None,
+
+    /// Function is inline
+    /// Note: This option is incompatible with a storage specifier.
+    Inline,
+
+    /// Function is recursive
+    Recursive,
+}
 
 // MARK: Parsers
 
@@ -148,7 +163,7 @@ mod tests {
     use super::*;
     use crate::lexer::register::init_test_registers;
     use crate::parser::composite_type::{GenericParam, IdentAndType, TypeUsed};
-    use crate::parser::memory::{MemStorage, ParamMem, ReturnMem};
+    use crate::parser::memory::{MemStorage, ParamMem, ParamStorage, ReturnMem};
     use crate::parser::statement::StmtInner;
     use crate::parser::{expression::Expr, memory::ParamType};
     use chumsky::input::{Input as _, Stream};
@@ -181,7 +196,7 @@ mod tests {
             ParamType::Memory(ParamMem::new(
                 "toto".into(),
                 TypeUsed::Prim(primitive::U8,),
-                MemStorage::In("zeropage".into()),
+                ParamStorage::In("zeropage".into()),
             ))
         );
         assert_eq!(
@@ -217,7 +232,7 @@ mod tests {
             ParamType::Memory(ParamMem::new(
                 "param".into(),
                 TypeUsed::Prim(primitive::U8),
-                MemStorage::In("zeropage".into()),
+                ParamStorage::In("zeropage".into()),
             ))
         );
         assert_eq!(
@@ -289,7 +304,7 @@ mod tests {
         };
         assert_eq!(parameter.ident, "source".into());
         //assert_eq!(parameter.type_used.primitive, primitive::U16);
-        assert!(matches!(parameter.storage, MemStorage::At(_)));
+        assert!(matches!(parameter.storage, ParamStorage::At(_)));
         assert_eq!(
             function.parameters[0].default_value,
             Some(Expr::Lit(Literal::Int(IntLit(7))).to_box())
@@ -299,7 +314,7 @@ mod tests {
             Some(
                 ReturnType::Memory(ReturnMem::new(
                     TypeUsed::Prim(primitive::U8,),
-                    MemStorage::In("zeropage".into()),
+                    ParamStorage::In("zeropage".into()),
                 ))
                 .to_box()
             )
@@ -317,6 +332,6 @@ mod tests {
             panic!("expected a memory return type");
         };
         //assert_eq!(return_type.type_used.primitive, primitive::U16);
-        assert!(matches!(return_type.storage, MemStorage::At(_)));
+        assert!(matches!(return_type.storage, ParamStorage::At(_)));
     }
 }
