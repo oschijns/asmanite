@@ -123,37 +123,51 @@ where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
     S: Parser<'tok, I, Statement, extra::Err<Rich<'tok, Token>>>,
 {
-    just(Token::Func)
-        .ignore_then(select! {
-            Token::Ident(IdentOrReg::Ident(ident)) => ident
+    let marker = select! {
+        Token::Inline => FuncMarker::Inline,
+        Token::Recursive => FuncMarker::Recursive,
+    }
+    .or_not()
+    .map(|marker| marker.unwrap_or_default());
+
+    let function = select! {
+        Token::Ident(IdentOrReg::Ident(ident)) => ident
+    }
+    .then(parser_generics().or_not())
+    .then(parser_mem_storage())
+    .then(
+        parser_param_decl()
+            .separated_by(just(Token::Comma))
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .delimited_by(just(PAREN_OPEN), just(PAREN_CLOSE)),
+    )
+    .then(
+        just(Token::Arrow)
+            .ignore_then(parser_return_type())
+            .or_not(),
+    )
+    .then(parser_block(statement))
+    .map(
+        |(((((ident, generics), storage), parameters), return_type), block)| {
+            let mut func = FuncDecl::new(ident, storage, parameters, block);
+            if let Some(generics) = generics {
+                func.with_generics(generics);
+            }
+            if let Some(rt) = return_type {
+                func.with_return(rt);
+            }
+            func
+        },
+    );
+
+    marker
+        .then_ignore(just(Token::Func))
+        .then(function)
+        .map(|(marker, mut function)| {
+            function.marker = marker;
+            function
         })
-        .then(parser_generics().or_not())
-        .then(parser_mem_storage())
-        .then(
-            parser_param_decl()
-                .separated_by(just(Token::Comma))
-                .allow_trailing()
-                .collect::<Vec<_>>()
-                .delimited_by(just(PAREN_OPEN), just(PAREN_CLOSE)),
-        )
-        .then(
-            just(Token::Arrow)
-                .ignore_then(parser_return_type())
-                .or_not(),
-        )
-        .then(parser_block(statement))
-        .map(
-            |(((((ident, generics), storage), parameters), return_type), block)| {
-                let mut func = FuncDecl::new(ident, storage, parameters, block);
-                if let Some(generics) = generics {
-                    func.with_generics(generics);
-                }
-                if let Some(rt) = return_type {
-                    func.with_return(rt);
-                }
-                func
-            },
-        )
 }
 
 // MARK: Tests
@@ -215,11 +229,23 @@ mod tests {
     fn parses_function_without_return_type_or_statements() {
         let function = parse_function("fn empty() {}");
 
+        assert_eq!(function.marker, FuncMarker::None);
         assert_eq!(function.ident, "empty".into());
         assert_eq!(function.storage, MemStorage::Undefined);
         assert!(function.parameters.is_empty());
         assert_eq!(function.return_type, None);
         assert!(function.block.is_empty());
+    }
+
+    #[test]
+    fn parses_inline_and_recursive_function_markers() {
+        let inline = parse_function("inline fn my_inline() {}");
+        assert_eq!(inline.marker, FuncMarker::Inline);
+        assert_eq!(inline.ident, "my_inline".into());
+
+        let recursive = parse_function("recursive fn my_rec() {}");
+        assert_eq!(recursive.marker, FuncMarker::Recursive);
+        assert_eq!(recursive.ident, "my_rec".into());
     }
 
     #[test]
