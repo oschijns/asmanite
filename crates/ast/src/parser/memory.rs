@@ -1,8 +1,6 @@
 use crate::{
-    ToBox,
     lexer::{
         atom::*,
-        register::RegIdent,
         token::{IdentOrReg, Token},
     },
     parser::{
@@ -11,6 +9,7 @@ use crate::{
         function::{FuncDecl, parser_function},
     },
 };
+use asmanite_common::{ToBox, ident::Ident, operator::assign::ASSIGN, register::RegIdent};
 use chumsky::{
     IterParser as _, Parser, error::Rich, extra, input::ValueInput, primitive::just, select,
     span::SimpleSpan,
@@ -316,7 +315,7 @@ where
         .then(type_used)
         .then(parser_mem_storage())
         .then(
-            just(Token::Assign(Assign::new()))
+            just(Token::Assign(ASSIGN))
                 .ignore_then(parser_expr(true))
                 .or_not(),
         )
@@ -371,7 +370,7 @@ where
 {
     parser_param_type()
         .then(
-            just(Token::Assign(Assign::new()))
+            just(Token::Assign(ASSIGN))
                 .ignore_then(parser_expr(true))
                 .or_not(),
         )
@@ -433,9 +432,10 @@ where
 mod tests {
     use super::*;
     use crate::{
-        lexer::{register::*, token::Token},
+        lexer::{init_test_registers, token::Token},
         parser::statement::{Statement, StmtInner, parser_statement},
     };
+    use asmanite_common::primitive::def;
     use chumsky::input::{Input as _, Stream};
     use logos::Logos as _;
 
@@ -516,7 +516,7 @@ mod tests {
             named.param_type,
             ParamType::Memory(ParamMem::new(
                 "toto".into(),
-                TypeUsed::Prim(primitive::U8),
+                TypeUsed::Prim(def::U8),
                 ParamStorage::In("zeropage".into()),
             ))
         );
@@ -545,7 +545,7 @@ mod tests {
             stack.param_type,
             ParamType::Memory(ParamMem::new(
                 "bb".into(),
-                TypeUsed::Prim(primitive::U8),
+                TypeUsed::Prim(def::U8),
                 ParamStorage::Stack,
             ))
         );
@@ -558,7 +558,7 @@ mod tests {
             comptime_param.param_type,
             ParamType::Memory(ParamMem::new(
                 "bb".into(),
-                TypeUsed::Prim(primitive::U8),
+                TypeUsed::Prim(def::U8),
                 ParamStorage::CompTime,
             ))
         );
@@ -606,7 +606,7 @@ mod tests {
         assert_eq!(
             banked,
             ReturnType::Memory(ReturnMem::new(
-                TypeUsed::Prim(primitive::U8),
+                TypeUsed::Prim(def::U8),
                 ParamStorage::In("zeropage".into()),
             ))
         );
@@ -618,7 +618,7 @@ mod tests {
         assert!(matches!(
             fixed,
             ReturnType::Memory(ReturnMem {
-                type_used: TypeUsed::Prim(primitive::U8),
+                type_used: TypeUsed::Prim(def::U8),
                 storage: ParamStorage::At(_)
             })
         ));

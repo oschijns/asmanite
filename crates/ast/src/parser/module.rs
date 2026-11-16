@@ -1,12 +1,11 @@
 use crate::{
-    ToBox,
     lexer::{
-        atom::Ident,
-        atom::{delimiter, operator},
+        atom::delimiter,
         token::{IdentOrReg, Token},
     },
     parser::{composite_type::TypeDecl, function::FuncDecl, memory::VarDecl},
 };
+use asmanite_common::{ToBox, ident::Ident, operator::op, path::Path};
 use chumsky::{
     IterParser as _, Parser, error::Rich, extra, input::ValueInput, primitive::just,
     recursive::recursive, select, span::SimpleSpan,
@@ -105,6 +104,22 @@ const BRACE_OPEN: Token = Token::Delimiter(delimiter::BRACE_OPEN);
 /// Close brace token
 const BRACE_CLOSE: Token = Token::Delimiter(delimiter::BRACE_CLOSE);
 
+/// Parse a sequence of identifiers and path separator into a path
+pub fn parser_path<'tok, 'src: 'tok, I>()
+-> impl Parser<'tok, I, Path, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    // collect a sequence of identifiers separated by `::`
+    select! {
+        Token::Ident(IdentOrReg::Ident(ident)) => ident,
+    }
+    .separated_by(just(Token::PathSep))
+    .at_least(1)
+    .collect::<Vec<_>>()
+    .map(Path::new)
+}
+
 /// Parse a `use` statement into its path tree.
 ///
 /// Both `path{...}` and Rust-style `path::{...}` groups are accepted.
@@ -117,7 +132,7 @@ where
         recursive(|use_tree| {
             let group = use_tree
                 .clone()
-                .or(just(Token::Operator(operator::MUL)).to(UseNode::new(UseElem::All)))
+                .or(just(Token::Operator(op::MUL)).to(UseNode::new(UseElem::All)))
                 .separated_by(just(Token::Comma))
                 .allow_trailing()
                 .collect::<Vec<_>>()
@@ -134,8 +149,7 @@ where
                 .or(just(Token::PathSep).ignore_then(
                     group
                         .clone()
-                        .or(just(Token::Operator(operator::MUL))
-                            .to(vec![UseNode::new(UseElem::All)]))
+                        .or(just(Token::Operator(op::MUL)).to(vec![UseNode::new(UseElem::All)]))
                         .or(use_tree.clone().map(|child| vec![child])),
                 ))
                 .or_not();
@@ -154,8 +168,9 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::lexer::init_test_registers;
+
     use super::*;
-    use crate::lexer::register::init_test_registers;
     use chumsky::input::{Input, Stream};
     use logos::Logos;
 

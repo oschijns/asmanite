@@ -1,13 +1,19 @@
 use crate::{
-    ToBox,
     lexer::{
         atom::*,
         token::{IdentOrReg, Token},
     },
     parser::{
         expression::{Expr, parser_expr},
-        path::{Path, parser_path},
+        module::parser_path,
     },
+};
+use asmanite_common::{
+    ToBox,
+    ident::Ident,
+    operator::{OpType, Operator, assign::ASSIGN},
+    path::Path,
+    primitive::{Primitive, def},
 };
 use chumsky::{
     IterParser as _, Parser, error::Rich, extra, input::ValueInput, prelude::just,
@@ -505,7 +511,7 @@ where
         Token::Ident(IdentOrReg::Ident(ident)) => ident,
     }
     .then(
-        just(Token::Assign(Assign::new()))
+        just(Token::Assign(ASSIGN))
             .ignore_then(parser_expr(false))
             .or_not(),
     );
@@ -531,7 +537,7 @@ where
         )
         .then(variants)
         .map(|((name, primitive), variants)| {
-            let mut enumeration = EnumType::new(primitive.unwrap_or(primitive::U8), variants);
+            let mut enumeration = EnumType::new(primitive.unwrap_or(def::U8), variants);
             if let Some(name) = name {
                 enumeration.with_name(name);
             }
@@ -550,7 +556,7 @@ where
             Token::Ident(IdentOrReg::Ident(ident)) => ident,
         })
         .then(parser_generics().or_not())
-        .then_ignore(just(Token::Assign(Assign::new())))
+        .then_ignore(just(Token::Assign(ASSIGN)))
         .then(parser_type_used())
         .then_ignore(just(Token::Semicolon))
         .map(|((name, generics), type_used)| {
@@ -734,7 +740,7 @@ mod tests {
     fn parses_type_alias_to_primitive() {
         assert_eq!(
             parse_type_alias("type Alias = u16;"),
-            TypeAlias::new("Alias".into(), TypeUsed::Prim(primitive::U16))
+            TypeAlias::new("Alias".into(), TypeUsed::Prim(def::U16))
         );
     }
 
@@ -747,7 +753,7 @@ mod tests {
                 generics: Some(Generics::new(vec![GenericParam::Type("G".into())])),
                 type_used: TypeUsed::Named(
                     NamedType {
-                        ident: Path::new(&["path_to_type", "MyType"]),
+                        ident: Path::from_slice(&["path_to_type", "MyType"]),
                         generics: Some(
                             vec![
                                 GenericUsed::Type(TypeUsed::Named(
@@ -771,11 +777,11 @@ mod tests {
         assert_eq!(
             alias.type_used,
             TypeUsed::Tuple(TupleType::new(vec![
-                TypeUsed::Prim(primitive::U8),
+                TypeUsed::Prim(def::U8),
                 TypeUsed::Function(
                     FunctionType {
-                        parameters: vec![TypeUsed::Prim(primitive::U16)].into_boxed_slice(),
-                        return_type: Some(TypeUsed::Prim(primitive::I32)),
+                        parameters: vec![TypeUsed::Prim(def::U16)].into_boxed_slice(),
+                        return_type: Some(TypeUsed::Prim(def::I32)),
                     }
                     .to_box()
                 ),
@@ -788,11 +794,8 @@ mod tests {
         assert_eq!(
             parse_type_used("[u8; 3]"),
             TypeUsed::Array(
-                ArrayType::new(
-                    TypeUsed::Prim(primitive::U8),
-                    Expr::Lit(Literal::Int(IntLit(3))),
-                )
-                .to_box()
+                ArrayType::new(TypeUsed::Prim(def::U8), Expr::Lit(Literal::Int(IntLit(3))),)
+                    .to_box()
             )
         );
     }
@@ -802,9 +805,9 @@ mod tests {
         assert_eq!(
             parse_type_used("(u8, u16, i32)"),
             TypeUsed::Tuple(TupleType::new(vec![
-                TypeUsed::Prim(primitive::U8),
-                TypeUsed::Prim(primitive::U16),
-                TypeUsed::Prim(primitive::I32),
+                TypeUsed::Prim(def::U8),
+                TypeUsed::Prim(def::U16),
+                TypeUsed::Prim(def::I32),
             ]))
         );
     }
@@ -815,10 +818,10 @@ mod tests {
             parse_type_used("path::to::MyType<i16, 3>"),
             TypeUsed::Named(
                 NamedType {
-                    ident: Path::new(&["path", "to", "MyType"]),
+                    ident: Path::from_slice(&["path", "to", "MyType"]),
                     generics: Some(
                         vec![
-                            GenericUsed::Type(TypeUsed::Prim(primitive::I16)),
+                            GenericUsed::Type(TypeUsed::Prim(def::I16)),
                             GenericUsed::Const(Expr::Lit(Literal::Int(IntLit(3)))),
                         ]
                         .into_boxed_slice(),
@@ -835,12 +838,9 @@ mod tests {
             parse_type_used("fn(u8, i16) -> i8"),
             TypeUsed::Function(
                 FunctionType {
-                    parameters: vec![
-                        TypeUsed::Prim(primitive::U8),
-                        TypeUsed::Prim(primitive::I16),
-                    ]
-                    .into_boxed_slice(),
-                    return_type: Some(TypeUsed::Prim(primitive::I8)),
+                    parameters: vec![TypeUsed::Prim(def::U8), TypeUsed::Prim(def::I16),]
+                        .into_boxed_slice(),
+                    return_type: Some(TypeUsed::Prim(def::I8)),
                 }
                 .to_box()
             )
@@ -859,8 +859,8 @@ mod tests {
         assert_eq!(
             structure.fields.as_ref(),
             &[
-                IdentAndType::new("toto".into(), TypeUsed::Prim(primitive::U8)),
-                IdentAndType::new("tata".into(), TypeUsed::Prim(primitive::I16)),
+                IdentAndType::new("toto".into(), TypeUsed::Prim(def::U8)),
+                IdentAndType::new("tata".into(), TypeUsed::Prim(def::I16)),
             ]
         );
 
@@ -873,8 +873,8 @@ mod tests {
         assert_eq!(
             union.fields.as_ref(),
             &[
-                IdentAndType::new("var1".into(), TypeUsed::Prim(primitive::U8)),
-                IdentAndType::new("var2".into(), TypeUsed::Prim(primitive::I8)),
+                IdentAndType::new("var1".into(), TypeUsed::Prim(def::U8)),
+                IdentAndType::new("var2".into(), TypeUsed::Prim(def::I8)),
             ]
         );
     }
@@ -891,7 +891,7 @@ mod tests {
             array.generics,
             Some(Generics::new(vec![
                 GenericParam::Type("T".into()),
-                GenericParam::Const(IdentAndType::new("S".into(), TypeUsed::Prim(primitive::U8),)),
+                GenericParam::Const(IdentAndType::new("S".into(), TypeUsed::Prim(def::U8),)),
             ]))
         );
         assert!(matches!(
@@ -908,10 +908,7 @@ mod tests {
             parse_generics_source("<T, const S: i16>"),
             Generics::new(vec![
                 GenericParam::Type("T".into()),
-                GenericParam::Const(IdentAndType::new(
-                    "S".into(),
-                    TypeUsed::Prim(primitive::I16),
-                )),
+                GenericParam::Const(IdentAndType::new("S".into(), TypeUsed::Prim(def::I16),)),
             ])
         );
     }
@@ -965,7 +962,7 @@ mod tests {
             panic!("expected enum type");
         };
         assert_eq!(enumeration.name, Some("MyEnum".into()));
-        assert_eq!(enumeration.primitive, primitive::U8);
+        assert_eq!(enumeration.primitive, def::U8);
         assert_eq!(
             enumeration.variants.as_ref(),
             &[
@@ -979,7 +976,7 @@ mod tests {
             panic!("expected enum type");
         };
         assert_eq!(enumeration.name, Some("Enum2".into()));
-        assert_eq!(enumeration.primitive, primitive::U16);
+        assert_eq!(enumeration.primitive, def::U16);
         assert_eq!(enumeration.variants.len(), 2);
     }
 }

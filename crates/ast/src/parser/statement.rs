@@ -1,5 +1,4 @@
 use crate::{
-    ToBox,
     lexer::{atom::*, token::Token},
     parser::{
         expression::{Expr, parser_expr},
@@ -11,6 +10,7 @@ use crate::{
         module::{UseNode, parser_use},
     },
 };
+use asmanite_common::ToBox;
 use chumsky::{
     IterParser as _, Parser, error::Rich, extra, input::ValueInput, prelude::just,
     recursive::recursive, select, span::SimpleSpan,
@@ -635,13 +635,16 @@ where
 mod tests {
     use super::*;
     use crate::{
-        ToBox,
-        lexer::{register::*, token::Token},
+        lexer::{init_test_registers, token::Token},
         parser::{
             composite_type::TypeUsed,
             expression::{AssignOp, BinaryOp},
             memory::{MemStorage, ParamMem, ParamStorage},
         },
+    };
+    use asmanite_common::{
+        operator::{assign::ASSIGN, op},
+        primitive::def,
     };
     use chumsky::input::{Input, Stream};
     use logos::Logos;
@@ -904,7 +907,7 @@ else                 { var third:  u8; }
             parse_statement("return result + 1;").inner,
             StmtInner::Return(Return::with_value(Expr::Binary(
                 BinaryOp::new(
-                    operator::ADD,
+                    op::ADD,
                     Expr::Var("result".into()),
                     Expr::Lit(Literal::Int(IntLit(1))),
                 )
@@ -923,7 +926,7 @@ else                 { var third:  u8; }
             instr.expr,
             Expr::Assign(
                 AssignOp::new(
-                    Assign::new(),
+                    ASSIGN,
                     Expr::Register("a".into()),
                     Expr::Lit(Literal::Int(IntLit(10))),
                 )
@@ -1016,7 +1019,7 @@ else                 { var third:  u8; }
             panic!("expected variable iterator");
         };
         assert_eq!(ident, "i".into());
-        assert_eq!(type_used, TypeUsed::Prim(primitive::U8));
+        assert_eq!(type_used, TypeUsed::Prim(def::U8));
         assert_eq!(storage, ParamStorage::In("zeropage".into()));
         assert_eq!(header.range, Range::excl());
         assert_eq!(header.start, Expr::Lit(Literal::Int(IntLit(0))));
@@ -1044,7 +1047,7 @@ else                 { var third:  u8; }
             ParamStorage::At(Expr::Lit(Literal::Int(IntLit(256))).to_box())
         );
         assert_eq!(ident, "i".into());
-        assert_eq!(type_used, TypeUsed::Prim(primitive::U8));
+        assert_eq!(type_used, TypeUsed::Prim(def::U8));
         assert_eq!(header.range, Range::incl());
         assert_eq!(header.start, Expr::Lit(Literal::Int(IntLit(10))));
         assert_eq!(header.end, Expr::Lit(Literal::Int(IntLit(100))));

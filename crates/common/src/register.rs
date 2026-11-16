@@ -1,4 +1,4 @@
-use crate::{lexer::atom::Primitive, utils::small_hash::SmallHashMap};
+use crate::{primitive::Primitive, small_hash::SmallHashMap};
 use core::{
     fmt::{self, Write},
     hash::{Hash, Hasher},
@@ -117,19 +117,4 @@ impl RegDef {
     pub fn new(primitive: Primitive) -> Self {
         Self { primitive }
     }
-}
-
-// MARK: TESTS
-
-#[cfg(test)]
-pub(crate) fn init_test_registers() {
-    use crate::lexer::atom::primitive::U8;
-
-    REGISTERS.get_or_init(|| {
-        RegSet::new(&[
-            ("a", RegDef::new(U8)),
-            ("x", RegDef::new(U8)),
-            ("y", RegDef::new(U8)),
-        ])
-    });
 }

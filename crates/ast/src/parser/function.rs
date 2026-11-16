@@ -1,5 +1,4 @@
 use crate::{
-    ToBox,
     lexer::{
         atom::*,
         token::{IdentOrReg, Token},
@@ -13,6 +12,7 @@ use crate::{
         statement::{Statement, parser_block, parser_statement},
     },
 };
+use asmanite_common::{ToBox, ident::Ident};
 use chumsky::{
     IterParser as _, Parser, error::Rich, extra, input::ValueInput, prelude::just, select,
     span::SimpleSpan,
@@ -175,11 +175,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lexer::register::init_test_registers;
+    use crate::lexer::init_test_registers;
     use crate::parser::composite_type::{GenericParam, IdentAndType, TypeUsed};
     use crate::parser::memory::{MemStorage, ParamMem, ParamStorage, ReturnMem};
     use crate::parser::statement::StmtInner;
     use crate::parser::{expression::Expr, memory::ParamType};
+    use asmanite_common::primitive::def;
     use chumsky::input::{Input as _, Stream};
     use logos::Logos as _;
 
@@ -209,7 +210,7 @@ mod tests {
             function.parameters[0].param_type,
             ParamType::Memory(ParamMem::new(
                 "toto".into(),
-                TypeUsed::Prim(primitive::U8,),
+                TypeUsed::Prim(def::U8,),
                 ParamStorage::In("zeropage".into()),
             ))
         );
@@ -257,7 +258,7 @@ mod tests {
             banked.parameters[0].param_type,
             ParamType::Memory(ParamMem::new(
                 "param".into(),
-                TypeUsed::Prim(primitive::U8),
+                TypeUsed::Prim(def::U8),
                 ParamStorage::In("zeropage".into()),
             ))
         );
@@ -285,10 +286,7 @@ mod tests {
             function.generics,
             Some(crate::parser::composite_type::Generics::new(vec![
                 GenericParam::Type("T".into()),
-                GenericParam::Const(IdentAndType::new(
-                    "S".into(),
-                    TypeUsed::Prim(primitive::I16),
-                )),
+                GenericParam::Const(IdentAndType::new("S".into(), TypeUsed::Prim(def::I16),)),
             ]))
         );
         assert_eq!(function.storage, MemStorage::In("prog_bank".into()));
@@ -339,7 +337,7 @@ mod tests {
             function.return_type,
             Some(
                 ReturnType::Memory(ReturnMem::new(
-                    TypeUsed::Prim(primitive::U8,),
+                    TypeUsed::Prim(def::U8,),
                     ParamStorage::In("zeropage".into()),
                 ))
                 .to_box()

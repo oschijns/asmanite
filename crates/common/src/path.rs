@@ -1,11 +1,4 @@
-use crate::lexer::{
-    atom::Ident,
-    token::{IdentOrReg, Token},
-};
-use chumsky::{
-    IterParser, Parser, error::Rich, extra, input::ValueInput, prelude::just, select,
-    span::SimpleSpan,
-};
+use crate::ident::Ident;
 use core::{fmt, ops};
 
 /// Path to a variable, type or function
@@ -14,7 +7,13 @@ pub struct Path(pub Box<[Ident]>);
 
 impl Path {
     /// Create a path instance from a slice of strings
-    pub fn new(elements: &[&str]) -> Self {
+    #[inline]
+    pub fn new(elements: Vec<Ident>) -> Self {
+        Self(elements.into_boxed_slice())
+    }
+
+    /// Create a path instance from a slice of strings
+    pub fn from_slice(elements: &[&str]) -> Self {
         Self(elements.iter().map(|e| Ident::new(e)).collect::<Box<[_]>>())
     }
 
@@ -26,7 +25,7 @@ impl Path {
 
     /// Construct a new pat hfrom to slices of identifiers
     #[allow(unused)]
-    pub(crate) fn from_slices(path_a: &[Ident], path_b: &[Ident]) -> Self {
+    pub(crate) fn concat(path_a: &[Ident], path_b: &[Ident]) -> Self {
         let mut buffer = Vec::with_capacity(path_a.len() + path_b.len());
         for e in path_a.iter() {
             buffer.push(e.clone());
@@ -36,22 +35,6 @@ impl Path {
         }
         Self(buffer.into_boxed_slice())
     }
-}
-
-/// Parse a sequence of identifiers and path separator into a path
-pub fn parser_path<'tok, 'src: 'tok, I>()
--> impl Parser<'tok, I, Path, extra::Err<Rich<'tok, Token>>>
-where
-    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-{
-    // collect a sequence of identifiers separated by `::`
-    select! {
-        Token::Ident(IdentOrReg::Ident(ident)) => ident,
-    }
-    .separated_by(just(Token::PathSep))
-    .at_least(1)
-    .collect::<Box<[_]>>()
-    .map(Path)
 }
 
 /// Simplify constructing a path from a raw string for testing purpose

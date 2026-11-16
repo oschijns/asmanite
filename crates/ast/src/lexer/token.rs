@@ -1,5 +1,8 @@
-use crate::lexer::{
-    atom::{assign, delimiter::*, operator::*, primitive::*, *},
+use crate::lexer::atom::{delimiter::*, *};
+use asmanite_common::{
+    ident::Ident,
+    operator::{Assign, Operator, assign, op::*},
+    primitive::{Primitive, def::*},
     register::{RegIdent, is_register},
 };
 use core::hash::Hash;
@@ -123,7 +126,7 @@ pub enum Token {
     Operator(Operator),
 
     /// Assign
-    #[token("="   , |_| Assign::new())]
+    #[token("="   , |_| assign::ASSIGN )]
     #[token("&&=" , |_| assign::AND    )]
     #[token("||=" , |_| assign::OR     )]
     #[token("&="  , |_| assign::BIT_AND)]

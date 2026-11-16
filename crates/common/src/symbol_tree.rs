@@ -1,4 +1,4 @@
-use crate::{lexer::atom::Ident, parser::path::Path};
+use crate::{ident::Ident, path::Path};
 use indextree::{Arena, NodeId};
 use std::collections::HashMap;
 

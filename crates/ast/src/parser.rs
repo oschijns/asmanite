@@ -1,6 +1,3 @@
-/// Parser for module path
-pub mod path;
-
 /// Parsers related to defining memory locations
 pub mod memory;
 
@@ -23,7 +20,7 @@ pub mod function;
 mod tests {
     use crate::{
         lexer::{
-            register::init_test_registers,
+            init_test_registers,
             token::{IdentOrReg, Token},
         },
         parser::{

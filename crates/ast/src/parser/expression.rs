@@ -1,10 +1,13 @@
 use crate::{
+    lexer::{atom::*, token::Token},
+    parser::{memory::parser_register, module::parser_path},
+};
+use asmanite_common::{
     ToBox,
-    lexer::{atom::*, register::RegIdent, token::Token},
-    parser::{
-        memory::parser_register,
-        path::{Path, parser_path},
-    },
+    operator::{Assign, OpType, Operator},
+    path::Path,
+    primitive::Primitive,
+    register::RegIdent,
 };
 use chumsky::{
     IterParser, Parser, error::Rich, extra, input::ValueInput, pratt,
@@ -260,7 +263,7 @@ where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
     let operator = select! {
-        Token::Operator(operator) if (operator.op_type.bitmask() & bitmask) != 0 => operator,
+        Token::Operator(operator) if (op_bitmask(operator.op_type) & bitmask) != 0 => operator,
     };
 
     // Binary operators have various associativity and precedence
@@ -308,10 +311,10 @@ fn gen_op_bitmasks() -> HashMap<(Associativity, Precedence), u64> {
     for op_type in OpType::iter() {
         // Can the operator be used as a binary operator
         if op_type.is_binary() {
-            let assoc = op_type.associativity_binary();
-            let prec = op_type.precedence_binary();
+            let assoc = associativity_binary(op_type);
+            let prec = precedence_binary(op_type);
             let mask = masks.entry((assoc, prec)).or_default();
-            *mask |= op_type.bitmask();
+            *mask |= op_bitmask(op_type);
         }
     }
     masks
@@ -321,8 +324,16 @@ fn gen_op_bitmasks() -> HashMap<(Associativity, Precedence), u64> {
 
 #[cfg(test)]
 mod tests {
+    use crate::lexer::init_test_registers;
+
     use super::*;
-    use crate::lexer::register::init_test_registers;
+    use asmanite_common::{
+        operator::{
+            OpType,
+            assign::{self, ASSIGN},
+        },
+        primitive::def,
+    };
     use chumsky::input::{Input, Stream};
     use logos::Logos;
 
@@ -416,7 +427,7 @@ mod tests {
                         )
                         .to_box()
                     ),
-                    primitive::U8,
+                    def::U8,
                 )
                 .to_box()
             )
@@ -474,9 +485,9 @@ mod tests {
             parse_expr("a = b = c"),
             Expr::Assign(
                 AssignOp::new(
-                    Assign::new(),
+                    ASSIGN,
                     a.clone(),
-                    Expr::Assign(AssignOp::new(Assign::new(), b.clone(), c.clone()).to_box()),
+                    Expr::Assign(AssignOp::new(ASSIGN, b.clone(), c.clone()).to_box()),
                 )
                 .to_box()
             )
@@ -486,7 +497,7 @@ mod tests {
             parse_expr("a = b += c"),
             Expr::Assign(
                 AssignOp::new(
-                    Assign::new(),
+                    ASSIGN,
                     a,
                     Expr::Assign(AssignOp::new(assign::ADD, b, c).to_box()),
                 )

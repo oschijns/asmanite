@@ -1,5 +1,5 @@
 [package]
-name = "asmanite_model"
+name = "asmanite-ast"
 description = "Lexer, parser and tokens for the asmanite language"
 repository.workspace = true
 categories.workspace = true
@@ -13,10 +13,9 @@ license   .workspace = true
 
 # Common
 thiserror.workspace = true
-serde    .workspace = true
+asmanite-common = { path = "../common" }
 
 # Lexer & Parser
 logos   = "0.16"
-chumsky = { version = "0.13", features = ["pratt"] }
-strum  = { version = "0.28", features = ["derive"] }
-indextree = "4.9"
+chumsky = { version = "0.13", features = ["pratt" ] }
+strum   = { version = "0.28", features = ["derive"] }
