@@ -10,7 +10,7 @@ use crate::{
         module::{UseNode, parser_use},
     },
 };
-use asmanite_common::ToBox;
+use asmanite_common::{Label, ToBox};
 use chumsky::{
     IterParser as _, Parser, error::Rich, extra, input::ValueInput, prelude::just,
     recursive::recursive, select, span::SimpleSpan,
@@ -643,6 +643,7 @@ mod tests {
         },
     };
     use asmanite_common::{
+        literal::{IntLit, Literal},
         operator::{assign::ASSIGN, op},
         primitive::def,
     };

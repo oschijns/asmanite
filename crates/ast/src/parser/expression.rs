@@ -4,6 +4,7 @@ use crate::{
 };
 use asmanite_common::{
     ToBox,
+    literal::Literal,
     operator::{Assign, OpType, Operator},
     path::Path,
     primitive::Primitive,
@@ -328,6 +329,7 @@ mod tests {
 
     use super::*;
     use asmanite_common::{
+        literal::IntLit,
         operator::{
             OpType,
             assign::{self, ASSIGN},

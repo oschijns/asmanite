@@ -435,7 +435,10 @@ mod tests {
         lexer::{init_test_registers, token::Token},
         parser::statement::{Statement, StmtInner, parser_statement},
     };
-    use asmanite_common::primitive::def;
+    use asmanite_common::{
+        literal::{IntLit, Literal},
+        primitive::def,
+    };
     use chumsky::input::{Input as _, Stream};
     use logos::Logos as _;
 

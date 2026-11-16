@@ -1,6 +1,8 @@
 use crate::lexer::atom::{delimiter::*, *};
 use asmanite_common::{
+    Label,
     ident::Ident,
+    literal::*,
     operator::{Assign, Operator, assign, op::*},
     primitive::{Primitive, def::*},
     register::{RegIdent, is_register},
@@ -290,20 +292,20 @@ pub enum Token {
     /// Literal
     #[token("false"                      , |_| Literal::Bool (BoolLit(false)))]
     #[token("true"                       , |_| Literal::Bool (BoolLit(true )))]
-    #[regex(r"'[^']'"                    , |c| Literal::Char (CharLit ::parse    (c)))]
-    #[regex(r"'\\.'"                     , |c| Literal::Char (CharLit ::parse_esc(c)))]
-    #[regex(r"'\\x[0-9A-Fa-f]{2}'"       , |c| Literal::Char (CharLit ::parse_hex(c)))]
-    #[regex(r"\d[0-9_]*"                 , |i| Literal::Int  (IntLit  ::parse    (i)))]
-    #[regex(r"0b[01][01_]*"              , |i| Literal::Int  (IntLit  ::parse    (i)))]
-    #[regex(r"0o[0-7][0-7_]*"            , |i| Literal::Int  (IntLit  ::parse    (i)))]
-    #[regex(r"0x[0-9A-Fa-f][0-9A-Fa-f_]*", |i| Literal::Int  (IntLit  ::parse    (i)))]
-    #[regex(r"\d+\.\d+([eE][+-]?\d+)?"   , |f| Literal::Float(FloatLit::parse    (f)))]
-    #[regex(r"\.\d+([eE][+-]?\d+)?"      , |f| Literal::Float(FloatLit::parse    (f)))]
-    #[regex(r#""([^"\\]|\\.)*""#         , |s| Literal::Str  (StrLit  ::parse    (s)))]
+    #[regex(r"'[^']'"                    , |c| Literal::Char (parse_char    (c)))]
+    #[regex(r"'\\.'"                     , |c| Literal::Char (parse_char_esc(c)))]
+    #[regex(r"'\\x[0-9A-Fa-f]{2}'"       , |c| Literal::Char (parse_char_hex(c)))]
+    #[regex(r"\d[0-9_]*"                 , |i| Literal::Int  (parse_int     (i)))]
+    #[regex(r"0b[01][01_]*"              , |i| Literal::Int  (parse_int     (i)))]
+    #[regex(r"0o[0-7][0-7_]*"            , |i| Literal::Int  (parse_int     (i)))]
+    #[regex(r"0x[0-9A-Fa-f][0-9A-Fa-f_]*", |i| Literal::Int  (parse_int     (i)))]
+    #[regex(r"\d+\.\d+([eE][+-]?\d+)?"   , |f| Literal::Float(parse_float   (f)))]
+    #[regex(r"\.\d+([eE][+-]?\d+)?"      , |f| Literal::Float(parse_float   (f)))]
+    #[regex(r#""([^"\\]|\\.)*""#         , |s| Literal::Str  (parse_str     (s)))]
     Lit(Literal),
 
     /// Label
-    #[regex(r"'[A-Za-z_]\w*", Label::parse)]
+    #[regex(r"'[A-Za-z_]\w*", parse_label)]
     Label(Label),
 
     /// Identifier
@@ -341,96 +343,86 @@ fn parse_multi_comment<'s>(lex: &Lexer<'s, Token>) -> String {
     seq[3..seq.len() - 2].to_string()
 }
 
-impl CharLit {
-    /// Parse character literal `'a'`
-    #[inline]
-    fn parse<'s>(lex: &Lexer<'s, Token>) -> Self {
-        // skip `'`
-        let c = lex.slice().chars().nth(1).unwrap();
-        Self(c)
-    }
-
-    /// Parse character literal `'\0'`
-    #[inline]
-    fn parse_esc<'s>(lex: &Lexer<'s, Token>) -> Self {
-        // skip `'\`
-        let c = lex.slice().chars().nth(2).unwrap();
-        let c = match c {
-            '0' => '\0',   // null
-            'n' => '\n',   // new line
-            'r' => '\r',   // carriage return
-            't' => '\t',   // horizontal tab
-            '\'' => '\'',  // single quote
-            '\\' => '\\',  // backslash
-            'a' => '\x07', // audible bell
-            'b' => '\x08', // backspace
-            'v' => '\x0B', // vertical tab
-            'f' => '\x0C', // form feed
-            _ => c,
-        };
-        Self(c)
-    }
-
-    /// Parse character literal `'\x00'`
-    #[inline]
-    fn parse_hex<'s>(lex: &Lexer<'s, Token>) -> Self {
-        // skip `'\x`
-        let c = u8::from_str_radix(&lex.slice()[3..5], 16).unwrap() as char;
-        Self(c)
-    }
+/// Parse character literal `'a'`
+#[inline]
+fn parse_char<'s>(lex: &Lexer<'s, Token>) -> CharLit {
+    // skip `'`
+    let c = lex.slice().chars().nth(1).unwrap();
+    CharLit(c)
 }
 
-impl IntLit {
-    /// Parse integer literal `0`
-    #[inline]
-    fn parse<'s>(lex: &Lexer<'s, Token>) -> Self {
-        let literal = lex.slice().replace('_', "");
-
-        // Check if the literal has a prefix
-        let (digits, radix) = if literal.len() >= 2 {
-            match &literal[..2] {
-                "0b" => (&literal[2..], 2),
-                "0o" => (&literal[2..], 8),
-                "0x" => (&literal[2..], 16),
-                _ => (literal.as_str(), 10),
-            }
-        } else {
-            (literal.as_str(), 10)
-        };
-        Self(
-            u128::from_str_radix(digits, radix)
-                .expect("digits should have been validated by regex beforehand"),
-        )
-    }
+/// Parse character literal `'\0'`
+#[inline]
+fn parse_char_esc<'s>(lex: &Lexer<'s, Token>) -> CharLit {
+    // skip `'\`
+    let c = lex.slice().chars().nth(2).unwrap();
+    let c = match c {
+        '0' => '\0',   // null
+        'n' => '\n',   // new line
+        'r' => '\r',   // carriage return
+        't' => '\t',   // horizontal tab
+        '\'' => '\'',  // single quote
+        '\\' => '\\',  // backslash
+        'a' => '\x07', // audible bell
+        'b' => '\x08', // backspace
+        'v' => '\x0B', // vertical tab
+        'f' => '\x0C', // form feed
+        _ => c,
+    };
+    CharLit(c)
 }
 
-impl FloatLit {
-    /// Parse floating point number literal `0.0`
-    #[inline]
-    fn parse<'s>(lex: &Lexer<'s, Token>) -> Self {
-        let f = lex.slice().parse::<f64>().unwrap();
-        Self(f)
-    }
+/// Parse character literal `'\x00'`
+#[inline]
+fn parse_char_hex<'s>(lex: &Lexer<'s, Token>) -> CharLit {
+    // skip `'\x`
+    let c = u8::from_str_radix(&lex.slice()[3..5], 16).unwrap() as char;
+    CharLit(c)
 }
 
-impl StrLit {
-    /// Parse string literal `"..."`
-    #[inline]
-    fn parse<'s>(lex: &Lexer<'s, Token>) -> Self {
-        // remove the double quotes on both ends
-        let seq = lex.slice();
-        let s = seq[1..seq.len() - 1].to_string();
-        Self(s.into_boxed_str())
-    }
+/// Parse integer literal `0`
+#[inline]
+fn parse_int<'s>(lex: &Lexer<'s, Token>) -> IntLit {
+    let literal = lex.slice().replace('_', "");
+
+    // Check if the literal has a prefix
+    let (digits, radix) = if literal.len() >= 2 {
+        match &literal[..2] {
+            "0b" => (&literal[2..], 2),
+            "0o" => (&literal[2..], 8),
+            "0x" => (&literal[2..], 16),
+            _ => (literal.as_str(), 10),
+        }
+    } else {
+        (literal.as_str(), 10)
+    };
+    IntLit(
+        u128::from_str_radix(digits, radix)
+            .expect("digits should have been validated by regex beforehand"),
+    )
 }
 
-impl Label {
-    /// Parse label literal `'label`
-    #[inline]
-    fn parse<'s>(lex: &Lexer<'s, Token>) -> Self {
-        let l = lex.slice()[1..].to_string();
-        Self(l.into_boxed_str())
-    }
+/// Parse floating point number literal `0.0`
+#[inline]
+fn parse_float<'s>(lex: &Lexer<'s, Token>) -> FloatLit {
+    let f = lex.slice().parse::<f64>().unwrap();
+    FloatLit(f)
+}
+
+/// Parse string literal `"..."`
+#[inline]
+fn parse_str<'s>(lex: &Lexer<'s, Token>) -> StrLit {
+    // remove the double quotes on both ends
+    let seq = lex.slice();
+    let s = seq[1..seq.len() - 1].to_string();
+    StrLit(s.into_boxed_str())
+}
+
+/// Parse label literal `'label`
+#[inline]
+fn parse_label<'s>(lex: &Lexer<'s, Token>) -> Label {
+    let l = lex.slice()[1..].to_string();
+    Label(l.into_boxed_str())
 }
 
 impl IdentOrReg {

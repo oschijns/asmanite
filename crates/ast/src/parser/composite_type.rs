@@ -694,6 +694,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use asmanite_common::literal::*;
     use chumsky::input::{Input, Stream};
     use logos::Logos;
 

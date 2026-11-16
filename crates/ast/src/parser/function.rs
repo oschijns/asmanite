@@ -180,6 +180,7 @@ mod tests {
     use crate::parser::memory::{MemStorage, ParamMem, ParamStorage, ReturnMem};
     use crate::parser::statement::StmtInner;
     use crate::parser::{expression::Expr, memory::ParamType};
+    use asmanite_common::literal::{IntLit, Literal};
     use asmanite_common::primitive::def;
     use chumsky::input::{Input as _, Stream};
     use logos::Logos as _;
