@@ -6,6 +6,7 @@ use asmanite_common::{
     operator::{Assign, Operator, assign, op::*},
     primitive::{Primitive, def::*},
     register::{RegIdent, is_register},
+    status::StatusFlag,
 };
 use core::hash::Hash;
 use logos::{Lexer, Logos};
@@ -66,6 +67,13 @@ pub enum Token {
     /// Semi-Colon
     #[token(";")]
     Semicolon,
+
+    /// Status flags
+    #[token("zero"    , |_| StatusFlag::Zero    )]
+    #[token("negative", |_| StatusFlag::Negative)]
+    #[token("carry"   , |_| StatusFlag::Carry   )]
+    #[token("overflow", |_| StatusFlag::Overflow)]
+    Status(StatusFlag),
 
     /// Identify primitive types
     #[token("u8" , |_| U8 )]

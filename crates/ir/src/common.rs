@@ -1,4 +1,6 @@
-use asmanite_common::{ToBox, operator::Operator, path::Path, register::RegIdent};
+use asmanite_common::{
+    ToBox, operator::Operator, path::Path, register::RegIdent, status::StatusFlag,
+};
 
 /// Type used for immediate values
 pub type Int = i64;
@@ -8,6 +10,9 @@ pub type Int = i64;
 /// Define a generic instruction
 #[derive(Debug, Clone, PartialEq)]
 pub enum OpCode {
+    /// Branching operation
+    Branch(Box<OpBranch>),
+
     /// Transfer data between two operands
     Transfer(Box<OpTransfer>),
 
@@ -18,14 +23,27 @@ pub enum OpCode {
     Binary(Box<OpBinary>),
 }
 
+/// Define a branching instruction
+#[derive(Debug, Clone, PartialEq)]
+pub struct OpBranch {
+    /// Condition to branch on
+    pub cond: StatusFlag,
+
+    /// Specify if the condition should be inverted ?
+    pub not_cond: bool,
+
+    /// Target label to branch to
+    pub target: Path,
+}
+
 /// Transfer data from one memory operand to an other
 #[derive(Debug, Clone, PartialEq)]
 pub struct OpTransfer {
-    /// Move data from source
-    pub src: Operand,
-
     /// Move data to destination
     pub dst: Operand,
+
+    /// Move data from source
+    pub src: Operand,
 }
 
 impl ToBox for OpTransfer {}
@@ -36,8 +54,11 @@ pub struct OpUnary {
     /// Operation
     pub op: Operator,
 
+    /// Destination operand
+    pub dst: Operand,
+
     /// Operand
-    pub data: Operand,
+    pub src: Operand,
 }
 
 impl ToBox for OpUnary {}
@@ -48,11 +69,14 @@ pub struct OpBinary {
     /// Operation
     pub op: Operator,
 
-    /// Operand
-    pub left: Operand,
+    /// Destination operand
+    pub dst: Operand,
 
     /// Operand
-    pub right: Operand,
+    pub lhs: Operand,
+
+    /// Operand
+    pub rhs: Operand,
 }
 
 impl ToBox for OpBinary {}
@@ -84,7 +108,7 @@ pub struct MemCell {
     /// Is there a constant offset from the variable ?
     pub offset: i64,
 
-    /// Register used for indexing
+    /// Register used for runtime indexing
     pub index: Option<RegIdent>,
 }
 

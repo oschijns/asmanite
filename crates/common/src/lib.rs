@@ -1,6 +1,9 @@
 /// Literals
 pub mod literal;
 
+/// Status flags
+pub mod status;
+
 /// Registers
 pub mod register;
 

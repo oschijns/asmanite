@@ -958,7 +958,7 @@ else                 { var third:  u8; }
     #[test]
     fn parses_switch_cases_and_default_case() {
         let statement = parse_statement(
-            "switch value { 0 => { var zero: u8; } 1 => { } _ => { var other: u8; } }",
+            "switch value { 0 => { var zero2: u8; } 1 => { } _ => { var other: u8; } }",
         );
         let StmtInner::Switch(switch) = statement.inner else {
             panic!("expected switch statement");

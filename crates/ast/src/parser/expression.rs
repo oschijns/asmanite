@@ -9,6 +9,7 @@ use asmanite_common::{
     path::Path,
     primitive::Primitive,
     register::RegIdent,
+    status::StatusFlag,
 };
 use chumsky::{
     IterParser, Parser, error::Rich, extra, input::ValueInput, pratt,
@@ -25,6 +26,9 @@ use strum::IntoEnumIterator;
 pub enum Expr {
     /// Literal
     Lit(Literal),
+
+    /// Status flag
+    Status(StatusFlag),
 
     /// Hardware register
     Register(RegIdent),
@@ -193,6 +197,7 @@ where
 {
     recursive(|expr| {
         let literal = select! { Token::Lit(literal) => Expr::Lit(literal) };
+        let status = select! { Token::Status(status) => Expr::Status(status) };
 
         let arguments = expr
             .clone()
@@ -217,7 +222,7 @@ where
 
         // node tokens to be associated with operators
         let register = parser_register().boxed().map(Expr::Register);
-        let atom = literal.or(register).or(path).or(grouped);
+        let atom = literal.or(status).or(register).or(path).or(grouped);
 
         // Collect parsers for operators
         // Binary operators have various level of precedences
@@ -438,6 +443,18 @@ mod tests {
                 ),
             }
         );
+    }
+
+    #[test]
+    fn parses_status_flags() {
+        for (source, status) in [
+            ("zero", StatusFlag::Zero),
+            ("negative", StatusFlag::Negative),
+            ("carry", StatusFlag::Carry),
+            ("overflow", StatusFlag::Overflow),
+        ] {
+            assert_eq!(parse_expr(source), Expr::Status(status));
+        }
     }
 
     #[test]
