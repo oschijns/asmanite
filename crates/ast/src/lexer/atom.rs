@@ -65,6 +65,12 @@ pub const ASSOC_ASSIGN: Associativity = Associativity::Right;
 /// Precendence of assignement expression is always the same
 pub const PREC_ASSIGN: Precedence = 10;
 
+/// Associativity of indexing operation
+pub const ASSOC_INDEX: Associativity = Associativity::Left;
+
+/// Precendence of indexing operation
+pub const PREC_INDEX: Precedence = 41;
+
 /// Precendence of unary operators
 pub const PREC_UNARY: Precedence = 40;
 

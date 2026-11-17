@@ -41,6 +41,9 @@ pub enum Expr {
     /// Assign operation
     Assign(Box<AssignOp>),
 
+    /// Indexing operation
+    Index(Box<IndexOp>),
+
     /// Function call
     Call(Box<FunctionCall>),
 
@@ -113,6 +116,17 @@ impl AssignOp {
 }
 impl ToBox for AssignOp {}
 
+/// Indexing operation
+#[derive(Debug, Clone, PartialEq)]
+pub struct IndexOp {
+    /// Expression to index
+    pub expr: Expr,
+
+    /// Index expression
+    pub index: Expr,
+}
+impl ToBox for IndexOp {}
+
 /// Function call
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionCall {
@@ -162,6 +176,12 @@ const PAREN_OPEN: Token = Token::Delimiter(delimiter::PAREN_OPEN);
 /// Close parenthesis token
 const PAREN_CLOSE: Token = Token::Delimiter(delimiter::PAREN_CLOSE);
 
+/// Open bracket token
+const BRACKET_OPEN: Token = Token::Delimiter(delimiter::BRACKET_OPEN);
+
+/// Close bracket token
+const BRACKET_CLOSE: Token = Token::Delimiter(delimiter::BRACKET_CLOSE);
+
 /// Read tokens to produce an expression.
 /// Provide a flag to indicate if assignments are allowed in the expression.
 /// Assignments can introduce syntax ambiguities in some contextes.
@@ -206,7 +226,7 @@ where
         // Allocate storage for all the operator types
         let mut operators = Vec::with_capacity(bitmasks.len() + 3);
 
-        // Add the binary operators, then the unary ones and the assignments
+        // Add the binary operators, then the unary ones and the assignments.
         operators.push(parse_type_cast().boxed());
         operators.push(parse_unary_op().boxed());
         for (&(assoc, prec), &mask) in bitmasks.iter() {
@@ -219,6 +239,19 @@ where
         // Set the possible operators encountered between atoms
         atom.pratt(operators)
     })
+}
+
+/// Parse an index operation
+pub fn parser_index_op<'tok, 'src: 'tok, I>()
+-> impl Parser<'tok, I, IndexOp, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    parser_expr(true)
+        .then_ignore(just(BRACKET_OPEN))
+        .then(parser_expr(true))
+        .then_ignore(just(BRACKET_CLOSE))
+        .map(|(expr, index)| IndexOp { expr, index })
 }
 
 /// Parse a function call
@@ -367,11 +400,43 @@ mod tests {
             .expect("test source should parse")
     }
 
+    fn parse_index(source: &str) -> IndexOp {
+        init_test_registers();
+        let tokens = Token::lexer(source)
+            .spanned()
+            .map(|(token, span)| (token.expect("test source should lex"), span.into()));
+        let input =
+            Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
+
+        parser_index_op()
+            .parse(input)
+            .into_result()
+            .expect("test source should parse")
+    }
+
     #[test]
     fn parses_function_call() {
         assert_eq!(
             parse_call("my::func(a, 2)"),
             FunctionCall::new("my::func".into(), vec![parse_expr("a"), parse_expr("2")])
+        );
+    }
+
+    #[test]
+    fn parses_index_operation() {
+        assert_eq!(
+            parse_index("a[1 + 2]"),
+            IndexOp {
+                expr: Expr::Register("a".into()),
+                index: Expr::Binary(
+                    BinaryOp::new(
+                        Operator::new(OpType::Add),
+                        Expr::Lit(Literal::Int(IntLit(1))),
+                        Expr::Lit(Literal::Int(IntLit(2))),
+                    )
+                    .to_box(),
+                ),
+            }
         );
     }
 
