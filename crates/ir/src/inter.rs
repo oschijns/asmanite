@@ -2,6 +2,15 @@ use asmanite_common::{
     ToBox, operator::Operator, path::Path, register::RegIdent, status::StatusFlag,
 };
 
+/// Identifier of a label
+pub type ScopeId = u64;
+
+/// Absolute Address
+pub type Address = u64;
+
+/// Relative address
+pub type Relative = i64;
+
 /// Type used for immediate values
 pub type Int = i64;
 
@@ -27,13 +36,45 @@ pub enum OpCode {
 #[derive(Debug, Clone, PartialEq)]
 pub struct OpBranch {
     /// Condition to branch on
-    pub cond: StatusFlag,
-
-    /// Specify if the condition should be inverted ?
-    pub not_cond: bool,
+    pub cond: Condition,
 
     /// Target label to branch to
     pub target: Path,
+}
+
+/// Condition in a branching operation
+#[derive(Debug, Clone, PartialEq)]
+pub enum Condition {
+    /// Condition on a CPU status flag
+    Status {
+        /// Flag to check
+        flag: StatusFlag,
+
+        /// Should the condition be inversed ?
+        inverse: bool,
+    },
+
+    /// Condition based on an expression
+    Expr(Box<OpBinary>),
+}
+
+/// Define the target of a jump or branch instruction
+#[derive(Debug, Clone, PartialEq)]
+pub enum JumpTarget {
+    /// Reference to a named label.
+    Scope(ScopeId),
+
+    /// Label
+    Label(Path),
+
+    /// Reference to a known absolute address.
+    Address(Address),
+
+    /// Relative displacement from the current instruction.
+    Relative(Relative),
+
+    /// Address held in a register or memory location.
+    Indirect(Box<Operand>),
 }
 
 /// Transfer data from one memory operand to an other

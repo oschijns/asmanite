@@ -1,2 +1,2 @@
 /// Intermediate representation
-mod common;
+mod inter;

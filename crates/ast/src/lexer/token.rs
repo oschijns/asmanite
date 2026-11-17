@@ -1,6 +1,5 @@
 use crate::lexer::atom::{delimiter::*, *};
 use asmanite_common::{
-    Label,
     ident::Ident,
     literal::*,
     operator::{Assign, Operator, assign, op::*},
@@ -314,7 +313,7 @@ pub enum Token {
 
     /// Label
     #[regex(r"'[A-Za-z_]\w*", parse_label)]
-    Label(Label),
+    Label(Ident),
 
     /// Identifier
     #[regex(r"[A-Za-z_]\w*", IdentOrReg::parse)]
@@ -428,9 +427,9 @@ fn parse_str<'s>(lex: &Lexer<'s, Token>) -> StrLit {
 
 /// Parse label literal `'label`
 #[inline]
-fn parse_label<'s>(lex: &Lexer<'s, Token>) -> Label {
+fn parse_label<'s>(lex: &Lexer<'s, Token>) -> Ident {
     let l = lex.slice()[1..].to_string();
-    Label(l.into_boxed_str())
+    Ident(l.into_boxed_str())
 }
 
 impl IdentOrReg {

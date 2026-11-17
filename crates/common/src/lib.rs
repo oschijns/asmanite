@@ -25,23 +25,10 @@ pub mod symbol_tree;
 /// Define types for hashmap and hashset using small key types (max 64-bits)
 pub mod small_hash;
 
-use core::fmt;
-
 /// Trivially box a type
 pub trait ToBox: Sized {
     #[inline]
     fn to_box(self) -> Box<Self> {
         Box::new(self)
-    }
-}
-
-/// Label identifier
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Label(pub Box<str>);
-
-impl fmt::Display for Label {
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "'{}", self.0)
     }
 }

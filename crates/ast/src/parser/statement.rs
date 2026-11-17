@@ -10,7 +10,7 @@ use crate::{
         module::{UseNode, parser_use},
     },
 };
-use asmanite_common::{Label, ToBox};
+use asmanite_common::{ToBox, ident::Ident};
 use chumsky::{
     IterParser as _, Parser, error::Rich, extra, input::ValueInput, prelude::just,
     recursive::recursive, select, span::SimpleSpan,
@@ -23,7 +23,7 @@ use chumsky::{
 #[derive(Debug, Clone, PartialEq)]
 pub struct Statement {
     /// Optional label on the statement
-    pub label: Option<Label>,
+    pub label: Option<Ident>,
 
     /// The actual statement / instruction
     pub inner: StmtInner,
@@ -276,7 +276,7 @@ pub struct LoopCtrl {
     pub ctrl_type: LoopCtrlType,
 
     /// Label of the loop affected
-    pub label: Option<Label>,
+    pub label: Option<Ident>,
 }
 
 /// Loop control types
@@ -293,7 +293,7 @@ pub enum LoopCtrlType {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Goto {
     /// Label to jump to
-    pub label: Label,
+    pub label: Ident,
 }
 
 /// Return from a function call
@@ -840,15 +840,15 @@ else                 { var third:  u8; }
     #[test]
     fn parses_labels_on_statements() {
         let variable = parse_statement("'variable_label: var value: u8;");
-        assert_eq!(variable.label, Some(Label("variable_label".into())));
+        assert_eq!(variable.label, Some(Ident("variable_label".into())));
         assert!(matches!(variable.inner, StmtInner::Var(_)));
 
         let loop_stmt = parse_statement("'loop_label: loop { }");
-        assert_eq!(loop_stmt.label, Some(Label("loop_label".into())));
+        assert_eq!(loop_stmt.label, Some(Ident("loop_label".into())));
         assert!(matches!(loop_stmt.inner, StmtInner::Loop(_)));
 
         let conditional = parse_statement("'if_label: if ready { }");
-        assert_eq!(conditional.label, Some(Label("if_label".into())));
+        assert_eq!(conditional.label, Some(Ident("if_label".into())));
         assert!(matches!(conditional.inner, StmtInner::If(_)));
 
         assert_eq!(parse_statement("loop { }").label, None);
@@ -861,13 +861,13 @@ else                 { var third:  u8; }
             (
                 "break 'label1;",
                 LoopCtrlType::Break,
-                Some(Label("label1".into())),
+                Some(Ident("label1".into())),
             ),
             ("continue;", LoopCtrlType::Continue, None),
             (
                 "continue 'label2;",
                 LoopCtrlType::Continue,
-                Some(Label("label2".into())),
+                Some(Ident("label2".into())),
             ),
         ] {
             let statement = parse_statement(source);
@@ -885,7 +885,7 @@ else                 { var third:  u8; }
         assert_eq!(
             statement.inner,
             StmtInner::Goto(Goto {
-                label: Label("target".into())
+                label: Ident("target".into())
             })
         );
 
