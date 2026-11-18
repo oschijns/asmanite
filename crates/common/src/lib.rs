@@ -1,3 +1,6 @@
+/// Span over source code
+pub mod span;
+
 /// Literals
 pub mod literal;
 

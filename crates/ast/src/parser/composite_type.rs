@@ -1,3 +1,4 @@
+use super::convert_span;
 use crate::{
     lexer::{
         atom::*,
@@ -14,6 +15,7 @@ use asmanite_common::{
     operator::{OpType, Operator, assign::ASSIGN},
     path::Path,
     primitive::{Primitive, def},
+    span::{Span, Spanned, WithSpan},
 };
 use chumsky::{
     IterParser as _, Parser, error::Rich, extra, input::ValueInput, prelude::just,
@@ -26,10 +28,10 @@ use chumsky::{
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeUsed {
     /// Primitive type
-    Prim(Primitive),
+    Prim(WithSpan<Primitive>),
 
     /// Pointer to a type
-    Pointer(Box<Self>),
+    Pointer(Box<WithSpan<Self>>),
 
     /// Array type
     Array(Box<ArrayType>),
@@ -50,9 +52,28 @@ pub enum TypeUsed {
     Enum(Box<EnumType>),
 }
 
+impl Spanned for TypeUsed {
+    #[rustfmt::skip]
+    fn span(&self) -> Span {
+        match self {
+            Self::Prim     (prim ) => prim .span,
+            Self::Pointer  (ptr  ) => ptr  .span,
+            Self::Array    (array) => array.span,
+            Self::Tuple    (tuple) => tuple.span,
+            Self::Function (func ) => func .span,
+            Self::Named    (named) => named.span,
+            Self::Composite(comp ) => comp .span,
+            Self::Enum     (e    ) => e    .span,
+        }
+    }
+}
+
 /// Array type
 #[derive(Debug, Clone, PartialEq)]
 pub struct ArrayType {
+    /// Span of the type
+    pub span: Span,
+
     /// Type of each cell
     pub cell_type: TypeUsed,
 
@@ -63,16 +84,30 @@ pub struct ArrayType {
 impl ArrayType {
     /// Create a new array type
     #[inline]
-    pub fn new(cell_type: TypeUsed, size: Expr) -> Self {
-        Self { cell_type, size }
+    pub fn new(span: Span, cell_type: TypeUsed, size: Expr) -> Self {
+        Self {
+            span,
+            cell_type,
+            size,
+        }
     }
 }
 
 impl ToBox for ArrayType {}
 
+impl Spanned for ArrayType {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
 /// Tuple type
 #[derive(Debug, Clone, PartialEq)]
 pub struct TupleType {
+    /// Span of the tuple
+    pub span: Span,
+
     /// Types in the tuple
     pub types: Box<[TypeUsed]>,
 }
@@ -80,16 +115,27 @@ pub struct TupleType {
 impl TupleType {
     /// Create a new tuple type
     #[inline]
-    pub fn new(types: Vec<TypeUsed>) -> Self {
+    pub fn new(span: Span, types: Vec<TypeUsed>) -> Self {
         Self {
+            span,
             types: types.into_boxed_slice(),
         }
+    }
+}
+
+impl Spanned for TupleType {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
     }
 }
 
 /// Function type
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionType {
+    /// Span of the function
+    pub span: Span,
+
     /// Parameters of the function
     pub parameters: Box<[TypeUsed]>,
 
@@ -100,8 +146,9 @@ pub struct FunctionType {
 impl FunctionType {
     /// Create a function type
     #[inline]
-    pub fn new(parameters: Vec<TypeUsed>) -> Self {
+    pub fn new(span: Span, parameters: Vec<TypeUsed>) -> Self {
         Self {
+            span,
             parameters: parameters.into_boxed_slice(),
             return_type: None,
         }
@@ -117,9 +164,19 @@ impl FunctionType {
 
 impl ToBox for FunctionType {}
 
+impl Spanned for FunctionType {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
 /// Complex named type defined in another location
 #[derive(Debug, Clone, PartialEq)]
 pub struct NamedType {
+    /// Span of the named type
+    pub span: Span,
+
     /// Path to the identifier of the type
     pub ident: Path,
 
@@ -131,8 +188,9 @@ pub struct NamedType {
 impl NamedType {
     /// Create a new complex named type
     #[inline]
-    pub fn new(ident: Path) -> Self {
+    pub fn new(span: Span, ident: Path) -> Self {
         Self {
+            span,
             ident,
             generics: None,
         }
@@ -147,6 +205,13 @@ impl NamedType {
 }
 
 impl ToBox for NamedType {}
+
+impl Spanned for NamedType {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
 
 /// Generic used in a complex type
 #[derive(Debug, Clone, PartialEq)]
@@ -171,9 +236,23 @@ pub enum TypeDecl {
     Alias(Box<TypeAlias>),
 }
 
+impl Spanned for TypeDecl {
+    #[rustfmt::skip]
+    fn span(&self) -> Span {
+        match self {
+            Self::Composite(comp ) => comp .span,
+            Self::Enum     (e    ) => e    .span,
+            Self::Alias    (alias) => alias.span,
+        }
+    }
+}
+
 /// Struct / Union type
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompositeType {
+    /// Span of the composite type
+    pub span: Span,
+
     /// Name of the composite type
     pub name: Option<Ident>,
 
@@ -190,8 +269,9 @@ pub struct CompositeType {
 impl CompositeType {
     /// Create a new composite type
     #[inline]
-    pub fn new(fields: Vec<IdentAndType>, is_union: bool) -> Self {
+    pub fn new(span: Span, fields: Vec<IdentAndType>, is_union: bool) -> Self {
         Self {
+            span,
             name: None,
             generics: None,
             fields: fields.into_boxed_slice(),
@@ -215,6 +295,13 @@ impl CompositeType {
 }
 
 impl ToBox for CompositeType {}
+
+impl Spanned for CompositeType {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
 
 /// List of generics associated with a type or a function
 #[derive(Debug, Clone, PartialEq)]
@@ -241,6 +328,9 @@ pub enum GenericParam {
 /// Enum type
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumType {
+    /// Span of the enum type
+    pub span: Span,
+
     /// Name of the enum type
     pub name: Option<Ident>,
 
@@ -254,8 +344,9 @@ pub struct EnumType {
 impl EnumType {
     /// Create a new enum type
     #[inline]
-    pub fn new(primitive: Primitive, variants: Vec<(Ident, Option<Expr>)>) -> Self {
+    pub fn new(span: Span, primitive: Primitive, variants: Vec<(Ident, Option<Expr>)>) -> Self {
         Self {
+            span,
             name: None,
             primitive,
             variants: variants.into_boxed_slice(),
@@ -271,6 +362,13 @@ impl EnumType {
 }
 
 impl ToBox for EnumType {}
+
+impl Spanned for EnumType {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
 
 /// Pair a identifier with a type
 /// Note: used by fields in a composite type or as generic constant
@@ -294,6 +392,9 @@ impl IdentAndType {
 /// Define an alias for a type
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeAlias {
+    /// Span of the type alias
+    pub span: Span,
+
     /// Name of the alias
     pub name: Ident,
 
@@ -307,8 +408,9 @@ pub struct TypeAlias {
 impl TypeAlias {
     /// Create a new type alias
     #[inline]
-    pub fn new(name: Ident, type_used: TypeUsed) -> Self {
+    pub fn new(span: Span, name: Ident, type_used: TypeUsed) -> Self {
         Self {
+            span,
             name,
             generics: None,
             type_used,
@@ -324,6 +426,13 @@ impl TypeAlias {
 }
 
 impl ToBox for TypeAlias {}
+
+impl Spanned for TypeAlias {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
 
 // MARK: Parsers
 
@@ -395,9 +504,10 @@ where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
     recursive(|type_used| {
-        let primitive = select! {
-            Token::Primitive(primitive) => TypeUsed::Prim(primitive),
-        };
+        let primitive =
+            select! { Token::Primitive(primitive) => primitive }.map_with(|primitive, extra| {
+                TypeUsed::Prim(WithSpan::new(convert_span(extra.span()), primitive))
+            });
         let array = parse_array_type(type_used.clone())
             .map(|array| TypeUsed::Array(array.to_box()))
             .boxed();
@@ -489,8 +599,9 @@ where
             .collect::<Vec<_>>()
             .delimited_by(just(BRACE_OPEN), just(BRACE_CLOSE)),
     )
-    .map(|(((kind, name), generics), fields)| {
-        let mut composite = CompositeType::new(fields, kind == TypeDef::Union);
+    .map_with(|(((kind, name), generics), fields), extra| {
+        let mut composite =
+            CompositeType::new(convert_span(extra.span()), fields, kind == TypeDef::Union);
         if let Some(name) = name {
             composite.with_name(name);
         }
@@ -536,8 +647,12 @@ where
                 .or_not(),
         )
         .then(variants)
-        .map(|((name, primitive), variants)| {
-            let mut enumeration = EnumType::new(primitive.unwrap_or(def::U8), variants);
+        .map_with(|((name, primitive), variants), extra| {
+            let mut enumeration = EnumType::new(
+                convert_span(extra.span()),
+                primitive.unwrap_or(def::U8),
+                variants,
+            );
             if let Some(name) = name {
                 enumeration.with_name(name);
             }
@@ -559,8 +674,8 @@ where
         .then_ignore(just(Token::Assign(ASSIGN)))
         .then(parser_type_used())
         .then_ignore(just(Token::Semicolon))
-        .map(|((name, generics), type_used)| {
-            let mut alias = TypeAlias::new(name, type_used);
+        .map_with(|((name, generics), type_used), extra| {
+            let mut alias = TypeAlias::new(convert_span(extra.span()), name, type_used);
             if let Some(generics) = generics {
                 alias.with_generics(generics);
             }
@@ -587,8 +702,11 @@ where
     type_used
         .then_ignore(just(Token::Semicolon))
         .then(parser_expr(false))
-        .map(|(cell_type, size)| ArrayType::new(cell_type, size))
+        .map(|(cell_type, size)| (cell_type, size))
         .delimited_by(just(BRACKET_OPEN), just(BRACKET_CLOSE))
+        .map_with(|(cell_type, size), extra| {
+            ArrayType::new(convert_span(extra.span()), cell_type, size)
+        })
 }
 
 /// Parse a tuple type such as `(u8, u16, i32)`.
@@ -612,8 +730,8 @@ where
         .at_least(1)
         .allow_trailing()
         .collect::<Vec<_>>()
-        .map(TupleType::new)
         .delimited_by(just(PAREN_OPEN), just(PAREN_CLOSE))
+        .map_with(|types, extra| TupleType::new(convert_span(extra.span()), types))
 }
 
 /// Parse a named type such as `path::to::MyType<i16, 3>`.
@@ -644,8 +762,8 @@ where
 
     parser_path()
         .then(generics.or_not())
-        .map(|(ident, generics)| {
-            let mut complex = NamedType::new(ident);
+        .map_with(|(ident, generics), extra| {
+            let mut complex = NamedType::new(convert_span(extra.span()), ident);
             if let Some(generics) = generics {
                 complex.with_generics(generics);
             }
@@ -680,8 +798,8 @@ where
     just(Token::Func)
         .ignore_then(parameters)
         .then(return_type)
-        .map(|(parameters, return_type)| {
-            let mut function = FunctionType::new(parameters);
+        .map_with(|(parameters, return_type), extra| {
+            let mut function = FunctionType::new(convert_span(extra.span()), parameters);
             if let Some(return_type) = return_type {
                 function.with_return(return_type);
             }

@@ -1,3 +1,4 @@
+use super::convert_span;
 use crate::{
     lexer::{atom::*, token::Token},
     parser::{
@@ -10,7 +11,11 @@ use crate::{
         module::{UseNode, parser_use},
     },
 };
-use asmanite_common::{ToBox, ident::Ident};
+use asmanite_common::{
+    ToBox,
+    ident::Ident,
+    span::{Span, Spanned, WithSpan},
+};
 use chumsky::{
     IterParser as _, Parser, error::Rich, extra, input::ValueInput, prelude::just,
     recursive::recursive, select, span::SimpleSpan,
@@ -42,7 +47,7 @@ impl Statement {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtInner {
     /// Use statement
-    Use(Box<UseNode>),
+    Use(Box<WithSpan<UseNode>>),
 
     /// In-bank block for variable declaration
     Bank(Box<InBank>),
@@ -75,25 +80,67 @@ pub enum StmtInner {
     Return(Return),
 }
 
+impl Spanned for StmtInner {
+    #[rustfmt::skip]
+    fn span(&self) -> Span {
+        match self {
+            StmtInner::Use     (u     ) => u     .span,
+            StmtInner::Bank    (bank  ) => bank  .span,
+            StmtInner::Var     (var   ) => var   .span,
+            StmtInner::Instr   (instr ) => instr .span,
+            StmtInner::Defer   (defer ) => defer .span,
+            StmtInner::If      (ifelse) => ifelse.span,
+            StmtInner::Switch  (switch) => switch.span,
+            StmtInner::Loop    (l     ) => l     .span,
+            StmtInner::LoopCtrl(ctrl  ) => ctrl  .span,
+            StmtInner::Goto    (goto  ) => goto  .span,
+            StmtInner::Return  (r     ) => r     .span,
+        }
+    }
+}
+
 /// Simple instruction
 #[derive(Debug, Clone, PartialEq)]
 pub struct Instr {
+    /// Span of the instruction
+    pub span: Span,
+
     /// Expression to evaluate as an instruction
     pub expr: Expr,
 }
 
 impl ToBox for Instr {}
 
+impl Spanned for Instr {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
 /// Defer block
 #[derive(Debug, Clone, PartialEq)]
 pub struct Defer {
+    /// Span of the defer block
+    pub span: Span,
+
     /// Block of code to execute when the current scope is exited
     pub block: Box<[Statement]>,
+}
+
+impl Spanned for Defer {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
 }
 
 /// If-else branching chain
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfElse {
+    /// Span of the if-else block
+    pub span: Span,
+
     /// Branches in the if-else chain
     /// Atleast one must be present and only the last one may omit a condition
     pub branches: Box<[Branching]>,
@@ -101,16 +148,27 @@ pub struct IfElse {
 
 impl IfElse {
     #[inline]
-    pub fn new(branches: Vec<Branching>) -> Self {
+    pub fn new(span: Span, branches: Vec<Branching>) -> Self {
         Self {
+            span,
             branches: branches.into_boxed_slice(),
         }
+    }
+}
+
+impl Spanned for IfElse {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
     }
 }
 
 /// Switch statement
 #[derive(Debug, Clone, PartialEq)]
 pub struct Switch {
+    /// Span of the switch block
+    pub span: Span,
+
     /// Variable or register to check
     pub variable: Expr,
 
@@ -121,8 +179,9 @@ pub struct Switch {
 
 impl Switch {
     #[inline]
-    pub fn new(variable: Expr, cases: Vec<Branching>) -> Self {
+    pub fn new(span: Span, variable: Expr, cases: Vec<Branching>) -> Self {
         Self {
+            span,
             variable,
             cases: cases.into_boxed_slice(),
         }
@@ -130,6 +189,13 @@ impl Switch {
 }
 
 impl ToBox for Switch {}
+
+impl Spanned for Switch {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
 
 /// Branching element
 #[derive(Debug, Clone, PartialEq)]
@@ -165,6 +231,9 @@ impl Branching {
 /// Loop
 #[derive(Debug, Clone, PartialEq)]
 pub struct Loop {
+    /// Span of the loop block
+    pub span: Span,
+
     /// The type of loop
     pub loop_type: LoopType,
 
@@ -175,8 +244,9 @@ pub struct Loop {
 impl Loop {
     // Create a new loop
     #[inline]
-    pub fn new(loop_type: LoopType, block: Vec<Statement>) -> Self {
+    pub fn new(span: Span, loop_type: LoopType, block: Vec<Statement>) -> Self {
         Self {
+            span,
             loop_type,
             block: block.into_boxed_slice(),
         }
@@ -184,6 +254,13 @@ impl Loop {
 }
 
 impl ToBox for Loop {}
+
+impl Spanned for Loop {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
 
 /// Define the type of loop
 #[derive(Debug, Clone, PartialEq)]
@@ -202,6 +279,9 @@ pub enum LoopType {
 /// Header of a while loop
 #[derive(Debug, Clone, PartialEq)]
 pub struct WhileLoopHeader {
+    /// Span of the while-loop header
+    pub span: Span,
+
     /// Condition to stop iterating
     pub condition: Expr,
 
@@ -212,8 +292,9 @@ pub struct WhileLoopHeader {
 impl WhileLoopHeader {
     // Create a new loop
     #[inline]
-    pub fn new(condition: Expr, do_while: bool) -> Self {
+    pub fn new(span: Span, condition: Expr, do_while: bool) -> Self {
         Self {
+            span,
             condition,
             do_while,
         }
@@ -222,9 +303,19 @@ impl WhileLoopHeader {
 
 impl ToBox for WhileLoopHeader {}
 
+impl Spanned for WhileLoopHeader {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
 /// Header of a for loop
 #[derive(Debug, Clone, PartialEq)]
 pub struct ForLoopHeader {
+    /// Span of the for-loop header
+    pub span: Span,
+
     /// Should the for-loop be unrolled inline ?
     pub inline: bool,
 
@@ -248,8 +339,9 @@ pub struct ForLoopHeader {
 impl ForLoopHeader {
     // Create a new for loop header
     #[inline]
-    pub fn new(iter: ParamType, range: Range, start: Expr, end: Expr) -> Self {
+    pub fn new(span: Span, iter: ParamType, range: Range, start: Expr, end: Expr) -> Self {
         Self {
+            span,
             inline: false,
             iter,
             range,
@@ -269,14 +361,31 @@ impl ForLoopHeader {
 
 impl ToBox for ForLoopHeader {}
 
+impl Spanned for ForLoopHeader {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
 /// Loop control instruction
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoopCtrl {
+    /// Span of the loop control
+    pub span: Span,
+
     /// Type of the instruction
     pub ctrl_type: LoopCtrlType,
 
     /// Label of the loop affected
     pub label: Option<Ident>,
+}
+
+impl Spanned for LoopCtrl {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
 }
 
 /// Loop control types
@@ -292,29 +401,51 @@ pub enum LoopCtrlType {
 /// Goto jump instruction
 #[derive(Debug, Clone, PartialEq)]
 pub struct Goto {
+    /// Span of the goto
+    pub span: Span,
+
     /// Label to jump to
     pub label: Ident,
 }
 
+impl Spanned for Goto {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
 /// Return from a function call
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Return {
+    /// Span of the return
+    pub span: Span,
+
+    /// Value returned (if any)
     pub value: Option<Box<Expr>>,
 }
 
 impl Return {
     /// Return from the function
     #[inline]
-    pub fn new() -> Self {
-        Self { value: None }
+    pub fn new(span: Span) -> Self {
+        Self { span, value: None }
     }
 
     /// Return from the function with a value
     #[inline]
-    pub fn with_value(value: Expr) -> Self {
+    pub fn with_value(span: Span, value: Expr) -> Self {
         Self {
+            span,
             value: Some(Box::new(value)),
         }
+    }
+}
+
+impl Spanned for Return {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
     }
 }
 
@@ -353,7 +484,7 @@ where
         let goto = parser_goto().map(StmtInner::Goto).boxed();
         let return_stmt = parser_return().map(StmtInner::Return).boxed();
         let use_stmt = parser_use()
-            .map(|use_node| StmtInner::Use(use_node.to_box()))
+            .map(|use_node| StmtInner::Use(Box::new(use_node)))
             .boxed();
 
         let statement = bank
@@ -388,7 +519,11 @@ where
         .or(ctrl_c)
         .then(select! { Token::Label(label) => label }.or_not())
         .then_ignore(just(Token::Semicolon))
-        .map(|(ctrl_type, label)| LoopCtrl { ctrl_type, label })
+        .map_with(|(ctrl_type, label), extra| LoopCtrl {
+            span: convert_span(extra.span()),
+            ctrl_type,
+            label,
+        })
 }
 
 /// Parse a goto statement, which must target a label.
@@ -400,7 +535,10 @@ where
     just(Token::Goto)
         .ignore_then(select! { Token::Label(label) => label })
         .then_ignore(just(Token::Semicolon))
-        .map(|label| Goto { label })
+        .map_with(|label, extra| Goto {
+            span: convert_span(extra.span()),
+            label,
+        })
 }
 
 /// Parse a return statement with an optional value expression.
@@ -412,9 +550,9 @@ where
     just(Token::Return)
         .ignore_then(parser_expr(true).or_not())
         .then_ignore(just(Token::Semicolon))
-        .map(|value| match value {
-            Some(value) => Return::with_value(value),
-            None => Return::new(),
+        .map_with(|value, extra| match value {
+            Some(value) => Return::with_value(convert_span(extra.span()), value),
+            None => Return::new(convert_span(extra.span())),
         })
 }
 
@@ -426,7 +564,10 @@ where
 {
     parser_expr(true)
         .then_ignore(just(Token::Semicolon))
-        .map(|expr| Instr { expr })
+        .map_with(|expr, extra| Instr {
+            span: convert_span(extra.span()),
+            expr,
+        })
 }
 
 /// Parse a defer block, which executes its statements when the current scope exits.
@@ -437,9 +578,12 @@ where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
     B: Parser<'tok, I, Vec<Statement>, extra::Err<Rich<'tok, Token>>> + 'tok,
 {
-    just(Token::Defer).ignore_then(block).map(|block| Defer {
-        block: block.into_boxed_slice(),
-    })
+    just(Token::Defer)
+        .ignore_then(block)
+        .map_with(|block, extra| Defer {
+            span: convert_span(extra.span()),
+            block: block.into_boxed_slice(),
+        })
 }
 
 /// Parse an if-else chain, including nested statements in each block.
@@ -475,7 +619,7 @@ where
     if_branch
         .then(else_if_branch.repeated().collect::<Vec<_>>())
         .then(else_branch.or_not())
-        .map(|((first, mut else_if), else_branch)| {
+        .map_with(|((first, mut else_if), else_branch), extra| {
             let mut branches =
                 Vec::with_capacity(1 + else_if.len() + usize::from(else_branch.is_some()));
             branches.push(first);
@@ -483,7 +627,7 @@ where
             if let Some(else_branch) = else_branch {
                 branches.push(else_branch);
             }
-            IfElse::new(branches)
+            IfElse::new(convert_span(extra.span()), branches)
         })
 }
 
@@ -512,11 +656,11 @@ where
                 .then(default_case.or_not())
                 .delimited_by(just(BRACE_OPEN), just(BRACE_CLOSE)),
         )
-        .map(|(variable, (mut cases, default_case))| {
+        .map_with(|(variable, (mut cases, default_case)), extra| {
             if let Some(block) = default_case {
                 cases.push(Branching::new_else(block));
             }
-            Switch::new(variable, cases)
+            Switch::new(convert_span(extra.span()), variable, cases)
         })
 }
 
@@ -531,26 +675,32 @@ where
     // simple infinite loop
     let infinite = just(Token::Loop)
         .ignore_then(block.clone())
-        .map(|block| Loop::new(LoopType::Loop, block));
+        .map_with(|block, extra| Loop::new(convert_span(extra.span()), LoopType::Loop, block));
 
     // while loop
     let while_loop = just(Token::While)
         .ignore_then(parser_expr(true))
+        .map_with(|condition, extra| {
+            WhileLoopHeader::new(convert_span(extra.span()), condition, false).to_box()
+        })
         .then(block.clone())
-        .map(|(condition, block)| {
-            let header = WhileLoopHeader::new(condition, false);
-            Loop::new(LoopType::While(header.to_box()), block)
+        .map_with(|(header, block), extra| {
+            Loop::new(convert_span(extra.span()), LoopType::While(header), block)
         });
 
     // do-while loop
     let do_while_loop = just(Token::Do)
         .ignore_then(block.clone())
-        .then_ignore(just(Token::While))
-        .then(parser_expr(true))
-        .then_ignore(just(Token::Semicolon))
-        .map(|(block, condition)| {
-            let header = WhileLoopHeader::new(condition, true);
-            Loop::new(LoopType::While(header.to_box()), block)
+        .then(
+            just(Token::While)
+                .ignore_then(parser_expr(true))
+                .then_ignore(just(Token::Semicolon))
+                .map_with(|condition, extra| {
+                    WhileLoopHeader::new(convert_span(extra.span()), condition, true).to_box()
+                }),
+        )
+        .map_with(|(block, header), extra| {
+            Loop::new(convert_span(extra.span()), LoopType::While(header), block)
         });
 
     // for loop
@@ -565,13 +715,17 @@ where
         .then_ignore(just(Token::Of))
         .then(for_range)
         .then(for_step)
-        .then(block)
-        .map(|(((iter, (start, range, end)), step), block)| {
-            let mut header = ForLoopHeader::new(iter, range, start, end);
+        .map_with(|((iter, (start, range, end)), step), extra| {
+            let mut header =
+                ForLoopHeader::new(convert_span(extra.span()), iter, range, start, end);
             if let Some(step) = step {
                 header.with_step(step);
             }
-            Loop::new(LoopType::For(header.to_box()), block)
+            header.to_box()
+        })
+        .then(block)
+        .map_with(|(header, block), extra| {
+            Loop::new(convert_span(extra.span()), LoopType::For(header), block)
         });
 
     infinite.or(while_loop).or(do_while_loop).or(for_loop)
@@ -786,8 +940,8 @@ mod tests {
     fn parses_if_else_chain() {
         let if_else = parse_if_else(
             "
-if      toto == true { var first:  u8; } 
-else if tata > 0     { var second: u8; } 
+if      toto == true { var first:  u8; }
+else if tata > 0     { var second: u8; }
 else                 { var third:  u8; }
 ",
         );

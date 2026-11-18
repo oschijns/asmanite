@@ -16,6 +16,14 @@ pub mod statement;
 /// Parser for function header
 pub mod function;
 
+use asmanite_common::span::Span;
+
+/// Convert a chumsky span into our own span type
+#[inline]
+fn convert_span(span: chumsky::span::SimpleSpan) -> Span {
+    Span::new(span.start, span.end)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{

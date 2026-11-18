@@ -1,3 +1,4 @@
+use super::convert_span;
 use crate::{
     lexer::{
         atom::*,
@@ -9,7 +10,13 @@ use crate::{
         function::{FuncDecl, parser_function},
     },
 };
-use asmanite_common::{ToBox, ident::Ident, operator::assign::ASSIGN, register::RegIdent};
+use asmanite_common::{
+    ToBox,
+    ident::Ident,
+    operator::assign::ASSIGN,
+    register::RegIdent,
+    span::{Span, Spanned, WithSpan},
+};
 use chumsky::{
     IterParser as _, Parser, error::Rich, extra, input::ValueInput, primitive::just, select,
     span::SimpleSpan,
@@ -20,6 +27,9 @@ use chumsky::{
 /// Block specifying where to store a bunch of variables
 #[derive(Debug, Clone, PartialEq)]
 pub struct InBank {
+    /// Span of the in-bank block
+    pub span: Span,
+
     /// Bank identifier
     pub ident: Ident,
 
@@ -30,8 +40,9 @@ pub struct InBank {
 
 impl InBank {
     #[inline]
-    pub fn new(ident: Ident, elements: Vec<BankElement>) -> Self {
+    pub fn new(span: Span, ident: Ident, elements: Vec<BankElement>) -> Self {
         Self {
+            span,
             ident,
             elements: elements.into_boxed_slice(),
         }
@@ -39,6 +50,13 @@ impl InBank {
 }
 
 impl ToBox for InBank {}
+
+impl Spanned for InBank {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
 
 /// Element in a in-bank statement
 /// Can be either a variable or a function
@@ -49,6 +67,16 @@ pub enum BankElement {
 
     /// Function declaration
     Func(Box<FuncDecl>),
+}
+
+impl Spanned for BankElement {
+    #[rustfmt::skip]
+    fn span(&self) -> Span {
+        match self {
+            Self::Var(var) => var.span,
+            Self::Func(func) => func.span,
+        }
+    }
 }
 
 /// Specify where to store the variable
@@ -81,6 +109,9 @@ impl MemStorage {
 /// - As function parameters (`decl_type` is then omitted)
 #[derive(Debug, Clone, PartialEq)]
 pub struct VarDecl {
+    /// Span of the variable declaration
+    pub span: Span,
+
     /// Type of variable declaration
     pub var_type: VarType,
 
@@ -101,8 +132,15 @@ pub struct VarDecl {
 impl VarDecl {
     /// Construct the variable declaration
     #[inline]
-    pub fn new(var_type: VarType, ident: Ident, type_used: TypeUsed, storage: MemStorage) -> Self {
+    pub fn new(
+        span: Span,
+        var_type: VarType,
+        ident: Ident,
+        type_used: TypeUsed,
+        storage: MemStorage,
+    ) -> Self {
         Self {
+            span,
             var_type,
             ident,
             type_used,
@@ -121,11 +159,21 @@ impl VarDecl {
 
 impl ToBox for VarDecl {}
 
+impl Spanned for VarDecl {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
 /// Parameter declaration
 /// Handle variable declaration for function parameters
 /// The `var` keyword is omitted and a register can be used instead
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParamDecl {
+    /// Span of the parameter declaration
+    pub span: Span,
+
     /// Type of parameter (either variable or register)
     pub param_type: ParamType,
 
@@ -136,8 +184,9 @@ pub struct ParamDecl {
 impl ParamDecl {
     /// Create a parameter
     #[inline]
-    pub fn new(param_type: ParamType) -> Self {
+    pub fn new(span: Span, param_type: ParamType) -> Self {
         Self {
+            span,
             param_type,
             default_value: None,
         }
@@ -151,6 +200,13 @@ impl ParamDecl {
     }
 }
 
+impl Spanned for ParamDecl {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
 /// Parameter is either bound to a memory location or to a register
 /// Note: used in for-loop to declare the iterator
 #[derive(Debug, Clone, PartialEq)]
@@ -159,12 +215,25 @@ pub enum ParamType {
     Memory(ParamMem),
 
     /// Parameter is bounded to a register
-    Register(RegIdent),
+    Register(WithSpan<RegIdent>),
+}
+
+impl Spanned for ParamType {
+    #[rustfmt::skip]
+    fn span(&self) -> Span {
+        match self {
+            Self::Memory  (mem) => mem.span,
+            Self::Register(reg) => reg.span,
+        }
+    }
 }
 
 /// Parameter bounded to a memory location
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParamMem {
+    /// Span of the parameter
+    pub span: Span,
+
     /// Identifier of the variable
     pub ident: Ident,
 
@@ -178,8 +247,9 @@ pub struct ParamMem {
 impl ParamMem {
     /// Construct a parameter bound to a memory location
     #[inline]
-    pub fn new(ident: Ident, type_used: TypeUsed, storage: ParamStorage) -> Self {
+    pub fn new(span: Span, ident: Ident, type_used: TypeUsed, storage: ParamStorage) -> Self {
         Self {
+            span,
             ident,
             type_used,
             storage,
@@ -194,14 +264,27 @@ pub enum ReturnType {
     Memory(ReturnMem),
 
     /// Parameter is bounded to a register
-    Register(RegIdent),
+    Register(WithSpan<RegIdent>),
 }
 
 impl ToBox for ReturnType {}
 
+impl Spanned for ReturnType {
+    #[rustfmt::skip]
+    fn span(&self) -> Span {
+        match self {
+            Self::Memory  (mem) => mem.span,
+            Self::Register(reg) => reg.span,
+        }
+    }
+}
+
 /// Return type bounded to a memory location
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReturnMem {
+    /// Span of the parameter
+    pub span: Span,
+
     /// Type of the variable
     pub type_used: TypeUsed,
 
@@ -212,8 +295,12 @@ pub struct ReturnMem {
 impl ReturnMem {
     /// Construct a parameter bound to a memory location
     #[inline]
-    pub fn new(type_used: TypeUsed, storage: ParamStorage) -> Self {
-        Self { type_used, storage }
+    pub fn new(span: Span, type_used: TypeUsed, storage: ParamStorage) -> Self {
+        Self {
+            span,
+            type_used,
+            storage,
+        }
     }
 }
 
@@ -291,7 +378,9 @@ where
                 .collect::<Vec<_>>()
                 .delimited_by(just(BRACE_OPEN), just(BRACE_CLOSE)),
         )
-        .map(|(ident, elements)| InBank::new(ident, elements))
+        .map_with(|(ident, elements), extra| {
+            InBank::new(convert_span(extra.span()), ident, elements)
+        })
 }
 
 /// Parse a variable, static, or constant declaration.
@@ -320,13 +409,21 @@ where
                 .or_not(),
         )
         .then_ignore(just(Token::Semicolon))
-        .map(|((((decl_type, ident), var_type), storage), assign_expr)| {
-            let mut var = VarDecl::new(decl_type, ident, var_type, storage);
-            if let Some(assign) = assign_expr {
-                var.with_assign(assign);
-            }
-            var
-        })
+        .map_with(
+            |((((decl_type, ident), var_type), storage), assign_expr), extra| {
+                let mut var = VarDecl::new(
+                    convert_span(extra.span()),
+                    decl_type,
+                    ident,
+                    var_type,
+                    storage,
+                );
+                if let Some(assign) = assign_expr {
+                    var.with_assign(assign);
+                }
+                var
+            },
+        )
 }
 
 /// Parse a parameter's type, either a named memory parameter or a register.
@@ -341,23 +438,39 @@ where
             .then(parser_type_used())
     };
 
-    let memory =
-        parse_memory()
-            .then(parser_param_storage())
-            .map(|((ident, type_used), storage)| {
-                ParamType::Memory(ParamMem::new(ident, type_used, storage))
-            });
+    let memory = parse_memory().then(parser_param_storage()).map_with(
+        |((ident, type_used), storage), extra| {
+            ParamType::Memory(ParamMem::new(
+                convert_span(extra.span()),
+                ident,
+                type_used,
+                storage,
+            ))
+        },
+    );
     let stack_memory = just(Token::VarDecl(VarType::Stack))
         .ignore_then(parse_memory())
-        .map(|(ident, type_used)| {
-            ParamType::Memory(ParamMem::new(ident, type_used, ParamStorage::Stack))
+        .map_with(|(ident, type_used), extra| {
+            ParamType::Memory(ParamMem::new(
+                convert_span(extra.span()),
+                ident,
+                type_used,
+                ParamStorage::Stack,
+            ))
         });
     let comptime_memory = just(Token::VarDecl(VarType::Let))
         .ignore_then(parse_memory())
-        .map(|(ident, type_used)| {
-            ParamType::Memory(ParamMem::new(ident, type_used, ParamStorage::CompTime))
+        .map_with(|(ident, type_used), extra| {
+            ParamType::Memory(ParamMem::new(
+                convert_span(extra.span()),
+                ident,
+                type_used,
+                ParamStorage::CompTime,
+            ))
         });
-    let register = parser_register().map(ParamType::Register);
+    let register = parser_register().map_with(|register, extra| {
+        ParamType::Register(WithSpan::new(convert_span(extra.span()), register))
+    });
 
     memory.or(stack_memory).or(comptime_memory).or(register)
 }
@@ -374,8 +487,8 @@ where
                 .ignore_then(parser_expr(true))
                 .or_not(),
         )
-        .map(|(param_type, default_value)| {
-            let mut declaration = ParamDecl::new(param_type);
+        .map_with(|(param_type, default_value), extra| {
+            let mut declaration = ParamDecl::new(convert_span(extra.span()), param_type);
             declaration.default_value = default_value.map(Box::new);
             declaration
         })
@@ -387,11 +500,22 @@ pub fn parser_return_type<'tok, 'src: 'tok, I>()
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
-    let memory = parser_type_used()
-        .then(parser_param_storage())
-        .map(|(type_used, storage)| ReturnType::Memory(ReturnMem::new(type_used, storage)));
+    let memory =
+        parser_type_used()
+            .then(parser_param_storage())
+            .map_with(|(type_used, storage), extra| {
+                ReturnType::Memory(ReturnMem::new(
+                    convert_span(extra.span()),
+                    type_used,
+                    storage,
+                ))
+            });
 
-    parser_register().map(ReturnType::Register).or(memory)
+    parser_register()
+        .map_with(|register, extra| {
+            ReturnType::Register(WithSpan::new(convert_span(extra.span()), register))
+        })
+        .or(memory)
 }
 
 /// Parse an optional memory placement clause.

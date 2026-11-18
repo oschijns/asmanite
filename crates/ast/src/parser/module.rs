@@ -1,3 +1,4 @@
+use super::convert_span;
 use crate::{
     lexer::{
         atom::delimiter,
@@ -5,7 +6,13 @@ use crate::{
     },
     parser::{composite_type::TypeDecl, function::FuncDecl, memory::VarDecl},
 };
-use asmanite_common::{ToBox, ident::Ident, operator::op, path::Path};
+use asmanite_common::{
+    ToBox,
+    ident::Ident,
+    operator::op,
+    path::Path,
+    span::{Span, Spanned, WithSpan},
+};
 use chumsky::{
     IterParser as _, Parser, error::Rich, extra, input::ValueInput, primitive::just,
     recursive::recursive, select, span::SimpleSpan,
@@ -16,6 +23,9 @@ use chumsky::{
 /// Define a module in the program
 #[derive(Debug, Clone, PartialEq)]
 pub struct Module {
+    /// Span of the module
+    pub span: Span,
+
     /// Module identifier
     pub ident: Ident,
 
@@ -25,8 +35,9 @@ pub struct Module {
 
 impl Module {
     #[inline]
-    pub fn new(ident: Ident, elements: Vec<ModElement>) -> Self {
+    pub fn new(span: Span, ident: Ident, elements: Vec<ModElement>) -> Self {
         Self {
+            span,
             ident,
             elements: elements.into_boxed_slice(),
         }
@@ -35,12 +46,19 @@ impl Module {
 
 impl ToBox for Module {}
 
+impl Spanned for Module {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
 /// Element in a module
 /// Can be either a variable, function or type
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModElement {
     /// Use statement
-    Use(Box<UseNode>),
+    Use(Box<WithSpan<UseNode>>),
 
     /// Type declaration
     Type(Box<TypeDecl>),
@@ -50,6 +68,18 @@ pub enum ModElement {
 
     /// Function declaration
     Func(Box<FuncDecl>),
+}
+
+impl Spanned for ModElement {
+    #[rustfmt::skip]
+    fn span(&self) -> Span {
+        match self {
+            Self::Use (u   ) => u   .span,
+            Self::Type(ty  ) => ty  .span(),
+            Self::Var (var ) => var .span,
+            Self::Func(func) => func.span,
+        }
+    }
 }
 
 /// A node in a `use` statement
@@ -124,46 +154,48 @@ where
 ///
 /// Both `path{...}` and Rust-style `path::{...}` groups are accepted.
 pub fn parser_use<'tok, 'src: 'tok, I>()
--> impl Parser<'tok, I, UseNode, extra::Err<Rich<'tok, Token>>>
+-> impl Parser<'tok, I, WithSpan<UseNode>, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
-    just(Token::Use).ignore_then(
-        recursive(|use_tree| {
-            let group = use_tree
-                .clone()
-                .or(just(Token::Operator(op::MUL)).to(UseNode::new(UseElem::All)))
-                .separated_by(just(Token::Comma))
-                .allow_trailing()
-                .collect::<Vec<_>>()
-                .delimited_by(just(BRACE_OPEN), just(BRACE_CLOSE));
+    just(Token::Use)
+        .ignore_then(
+            recursive(|use_tree| {
+                let group = use_tree
+                    .clone()
+                    .or(just(Token::Operator(op::MUL)).to(UseNode::new(UseElem::All)))
+                    .separated_by(just(Token::Comma))
+                    .allow_trailing()
+                    .collect::<Vec<_>>()
+                    .delimited_by(just(BRACE_OPEN), just(BRACE_CLOSE));
 
-            let element = select! {
-                Token::Ident(IdentOrReg::Ident(ident)) => UseElem::Ident(ident),
-                Token::Root => UseElem::Root,
-                Token::Self_ => UseElem::Self_,
-            };
+                let element = select! {
+                    Token::Ident(IdentOrReg::Ident(ident)) => UseElem::Ident(ident),
+                    Token::Root => UseElem::Root,
+                    Token::Self_ => UseElem::Self_,
+                };
 
-            let children = group
-                .clone()
-                .or(just(Token::PathSep).ignore_then(
-                    group
-                        .clone()
-                        .or(just(Token::Operator(op::MUL)).to(vec![UseNode::new(UseElem::All)]))
-                        .or(use_tree.clone().map(|child| vec![child])),
-                ))
-                .or_not();
+                let children = group
+                    .clone()
+                    .or(just(Token::PathSep).ignore_then(
+                        group
+                            .clone()
+                            .or(just(Token::Operator(op::MUL)).to(vec![UseNode::new(UseElem::All)]))
+                            .or(use_tree.clone().map(|child| vec![child])),
+                    ))
+                    .or_not();
 
-            element.then(children).map(|(element, children)| {
-                let mut node = UseNode::new(element);
-                if let Some(children) = children {
-                    node.with_children(children);
-                }
-                node
+                element.then(children).map(|(element, children)| {
+                    let mut node = UseNode::new(element);
+                    if let Some(children) = children {
+                        node.with_children(children);
+                    }
+                    node
+                })
             })
-        })
-        .then_ignore(just(Token::Semicolon)),
-    )
+            .then_ignore(just(Token::Semicolon)),
+        )
+        .map_with(|node, extra| WithSpan::new(convert_span(extra.span()), node))
 }
 
 #[cfg(test)]
@@ -182,7 +214,11 @@ mod tests {
         let input =
             Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
 
-        parser_use().parse(input).into_result().map_err(|_| ())
+        parser_use()
+            .map(|node| node.atom)
+            .parse(input)
+            .into_result()
+            .map_err(|_| ())
     }
 
     fn node(element: UseElem, children: Vec<UseNode>) -> UseNode {

@@ -1,3 +1,4 @@
+use super::convert_span;
 use crate::{
     lexer::{atom::*, token::Token},
     parser::{memory::parser_register, module::parser_path},
@@ -9,6 +10,7 @@ use asmanite_common::{
     path::Path,
     primitive::Primitive,
     register::RegIdent,
+    span::{Span, Spanned, WithSpan},
     status::StatusFlag,
 };
 use chumsky::{
@@ -25,16 +27,16 @@ use strum::IntoEnumIterator;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     /// Literal
-    Lit(Literal),
+    Lit(WithSpan<Literal>),
 
     /// Status flag
-    Status(StatusFlag),
+    Status(WithSpan<StatusFlag>),
 
     /// Hardware register
-    Register(RegIdent),
+    Register(WithSpan<RegIdent>),
 
     /// Path to variable identifier
-    Var(Path),
+    Var(WithSpan<Path>),
 
     /// Unary operation
     Unary(Box<UnaryOp>),
@@ -55,14 +57,36 @@ pub enum Expr {
     Cast(Box<TypeCast>),
 
     /// Parenthesized expression
-    Group(Box<Self>),
+    Group(Box<WithSpan<Self>>),
 }
 
 impl ToBox for Expr {}
 
+impl Spanned for Expr {
+    #[rustfmt::skip]
+    fn span(&self) -> Span {
+        match self {
+            Self::Lit     (lit   ) => lit   .span,
+            Self::Status  (status) => status.span,
+            Self::Register(reg   ) => reg   .span,
+            Self::Var     (var   ) => var   .span,
+            Self::Unary   (unary ) => unary .span,
+            Self::Binary  (binary) => binary.span,
+            Self::Assign  (assign) => assign.span,
+            Self::Index   (index ) => index .span,
+            Self::Call    (func  ) => func  .span,
+            Self::Cast    (cast  ) => cast  .span,
+            Self::Group   (group ) => group .span,
+        }
+    }
+}
+
 /// Unary operation
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnaryOp {
+    /// Span of the unary operation
+    pub span: Span,
+
     /// Operator applied to the expression
     pub op: Operator,
 
@@ -72,15 +96,25 @@ pub struct UnaryOp {
 
 impl UnaryOp {
     #[inline]
-    pub fn new(op: Operator, expr: Expr) -> Self {
-        Self { op, expr }
+    pub fn new(span: Span, op: Operator, expr: Expr) -> Self {
+        Self { span, op, expr }
     }
 }
 impl ToBox for UnaryOp {}
 
+impl Spanned for UnaryOp {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
 /// Binary operation
 #[derive(Debug, Clone, PartialEq)]
 pub struct BinaryOp {
+    /// Span of the binary operation
+    pub span: Span,
+
     /// Operator between the operands
     pub op: Operator,
 
@@ -93,15 +127,26 @@ pub struct BinaryOp {
 
 impl BinaryOp {
     #[inline]
-    pub fn new(op: Operator, lhs: Expr, rhs: Expr) -> Self {
-        Self { op, lhs, rhs }
+    pub fn new(span: Span, op: Operator, lhs: Expr, rhs: Expr) -> Self {
+        Self { span, op, lhs, rhs }
     }
 }
+
 impl ToBox for BinaryOp {}
+
+impl Spanned for BinaryOp {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
 
 /// Assign operation
 #[derive(Debug, Clone, PartialEq)]
 pub struct AssignOp {
+    /// Span of the assignment
+    pub span: Span,
+
     /// Operator between the operands
     pub assign: Assign,
 
@@ -114,26 +159,53 @@ pub struct AssignOp {
 
 impl AssignOp {
     #[inline]
-    pub fn new(assign: Assign, lhs: Expr, rhs: Expr) -> Self {
-        Self { assign, lhs, rhs }
+    pub fn new(span: Span, assign: Assign, lhs: Expr, rhs: Expr) -> Self {
+        Self {
+            span,
+            assign,
+            lhs,
+            rhs,
+        }
     }
 }
+
 impl ToBox for AssignOp {}
+
+impl Spanned for AssignOp {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
 
 /// Indexing operation
 #[derive(Debug, Clone, PartialEq)]
 pub struct IndexOp {
+    /// Span of the indexing
+    pub span: Span,
+
     /// Expression to index
     pub expr: Expr,
 
     /// Index expression
     pub index: Expr,
 }
+
 impl ToBox for IndexOp {}
+
+impl Spanned for IndexOp {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
 
 /// Function call
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionCall {
+    /// Span of the function call
+    pub span: Span,
+
     /// Function being called
     pub callee: Path,
 
@@ -143,8 +215,9 @@ pub struct FunctionCall {
 
 impl FunctionCall {
     #[inline]
-    pub fn new(callee: Path, args: Vec<Expr>) -> Self {
+    pub fn new(span: Span, callee: Path, args: Vec<Expr>) -> Self {
         Self {
+            span,
             callee,
             args: args.into_boxed_slice(),
         }
@@ -153,9 +226,19 @@ impl FunctionCall {
 
 impl ToBox for FunctionCall {}
 
+impl Spanned for FunctionCall {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
 /// Type cast using the `as` keyword
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeCast {
+    /// Span of the type cast
+    pub span: Span,
+
     /// Expression to cast
     pub expr: Expr,
 
@@ -165,12 +248,19 @@ pub struct TypeCast {
 
 impl TypeCast {
     #[inline]
-    pub fn new(expr: Expr, prim: Primitive) -> Self {
-        Self { expr, prim }
+    pub fn new(span: Span, expr: Expr, prim: Primitive) -> Self {
+        Self { span, expr, prim }
     }
 }
 
 impl ToBox for TypeCast {}
+
+impl Spanned for TypeCast {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
 
 // MARK: Parsers
 
@@ -196,8 +286,12 @@ where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
     recursive(|expr| {
-        let literal = select! { Token::Lit(literal) => Expr::Lit(literal) };
-        let status = select! { Token::Status(status) => Expr::Status(status) };
+        let literal = select! { Token::Lit(literal) => literal }.map_with(|literal, extra| {
+            Expr::Lit(WithSpan::new(convert_span(extra.span()), literal))
+        });
+        let status = select! { Token::Status(status) => status }.map_with(|status, extra| {
+            Expr::Status(WithSpan::new(convert_span(extra.span()), status))
+        });
 
         let arguments = expr
             .clone()
@@ -210,18 +304,27 @@ where
             parser_path()
                 .boxed()
                 .then(arguments.or_not())
-                .map(|(callee, args)| match args {
-                    Some(args) => Expr::Call(FunctionCall::new(callee, args).to_box()),
-                    None => Expr::Var(callee),
+                .map_with(|(callee, args), extra| {
+                    let span = convert_span(extra.span());
+                    match args {
+                        Some(args) => Expr::Call(FunctionCall::new(span, callee, args).to_box()),
+                        None => Expr::Var(WithSpan::new(span, callee)),
+                    }
                 });
 
         let grouped = expr
             .clone()
             .delimited_by(just(PAREN_OPEN), just(PAREN_CLOSE))
-            .map(|inner| Expr::Group(inner.to_box()));
+            .map_with(|inner, extra| {
+                Expr::Group(Box::new(WithSpan::new(convert_span(extra.span()), inner)))
+            });
 
         // node tokens to be associated with operators
-        let register = parser_register().boxed().map(Expr::Register);
+        let register = parser_register()
+            .map_with(|register, extra| {
+                Expr::Register(WithSpan::new(convert_span(extra.span()), register))
+            })
+            .boxed();
         let atom = literal.or(status).or(register).or(path).or(grouped);
 
         // Collect parsers for operators
@@ -256,7 +359,11 @@ where
         .then_ignore(just(BRACKET_OPEN))
         .then(parser_expr(true))
         .then_ignore(just(BRACKET_CLOSE))
-        .map(|(expr, index)| IndexOp { expr, index })
+        .map_with(|(expr, index), extra| IndexOp {
+            span: convert_span(extra.span()),
+            expr,
+            index,
+        })
 }
 
 /// Parse a function call
@@ -273,7 +380,9 @@ where
 
     parser_path()
         .then(arguments)
-        .map(|(callee, args)| FunctionCall::new(callee, args))
+        .map_with(|(callee, args), extra| {
+            FunctionCall::new(convert_span(extra.span()), callee, args)
+        })
 }
 
 /// Parse a unary operator
@@ -287,8 +396,8 @@ where
     };
 
     // All unary operators share the same precedence level (for now...)
-    pratt::prefix(PREC_UNARY, operator, |op, operand, _| {
-        Expr::Unary(UnaryOp::new(op, operand).to_box())
+    pratt::prefix(PREC_UNARY, operator, |op, operand, extra| {
+        Expr::Unary(UnaryOp::new(convert_span(extra.span()), op, operand).to_box())
     })
 }
 
@@ -306,8 +415,8 @@ where
     };
 
     // Binary operators have various associativity and precedence
-    pratt::infix(assoc.to_chumsky(prec), operator, |lhs, op, rhs, _| {
-        Expr::Binary(BinaryOp::new(op, lhs, rhs).to_box())
+    pratt::infix(assoc.to_chumsky(prec), operator, |lhs, op, rhs, extra| {
+        Expr::Binary(BinaryOp::new(convert_span(extra.span()), op, lhs, rhs).to_box())
     })
 }
 
@@ -323,7 +432,9 @@ where
     pratt::infix(
         ASSOC_ASSIGN.to_chumsky(PREC_ASSIGN),
         assign,
-        |lhs, assign, rhs, _| Expr::Assign(AssignOp::new(assign, lhs, rhs).to_box()),
+        |lhs, assign, rhs, extra| {
+            Expr::Assign(AssignOp::new(convert_span(extra.span()), assign, lhs, rhs).to_box())
+        },
     )
 }
 
@@ -337,8 +448,8 @@ where
         Token::Primitive(primitive) => primitive,
     });
 
-    pratt::postfix(PREC_TYPE_CAST, cast, |expr, prim, _| {
-        Expr::Cast(TypeCast::new(expr, prim).to_box())
+    pratt::postfix(PREC_TYPE_CAST, cast, |expr, prim, extra| {
+        Expr::Cast(TypeCast::new(convert_span(extra.span()), expr, prim).to_box())
     })
 }
 

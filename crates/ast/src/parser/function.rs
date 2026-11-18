@@ -1,3 +1,4 @@
+use super::convert_span;
 use crate::{
     lexer::{
         atom::*,
@@ -12,7 +13,11 @@ use crate::{
         statement::{Statement, parser_block, parser_statement},
     },
 };
-use asmanite_common::{ToBox, ident::Ident};
+use asmanite_common::{
+    ToBox,
+    ident::Ident,
+    span::{Span, Spanned},
+};
 use chumsky::{
     IterParser as _, Parser, error::Rich, extra, input::ValueInput, prelude::just, select,
     span::SimpleSpan,
@@ -23,6 +28,9 @@ use chumsky::{
 /// Function declaration
 #[derive(Debug, Clone, PartialEq)]
 pub struct FuncDecl {
+    /// Span of the function declaration
+    pub span: Span,
+
     /// Define if the function is inline or recursive
     pub marker: FuncMarker,
 
@@ -49,12 +57,14 @@ impl FuncDecl {
     /// Declare a function
     #[inline]
     pub fn new(
+        span: Span,
         ident: Ident,
         storage: MemStorage,
         parameters: Vec<ParamDecl>,
         block: Vec<Statement>,
     ) -> Self {
         Self {
+            span,
             marker: FuncMarker::None,
             ident,
             generics: None,
@@ -81,6 +91,13 @@ impl FuncDecl {
 }
 
 impl ToBox for FuncDecl {}
+
+impl Spanned for FuncDecl {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
 
 /// Function marker (inline, recursive, etc.)
 #[repr(u8)]
@@ -148,9 +165,15 @@ where
             .or_not(),
     )
     .then(parser_block(statement))
-    .map(
-        |(((((ident, generics), storage), parameters), return_type), block)| {
-            let mut func = FuncDecl::new(ident, storage, parameters, block);
+    .map_with(
+        |(((((ident, generics), storage), parameters), return_type), block), extra| {
+            let mut func = FuncDecl::new(
+                convert_span(extra.span()),
+                ident,
+                storage,
+                parameters,
+                block,
+            );
             if let Some(generics) = generics {
                 func.with_generics(generics);
             }
@@ -164,7 +187,8 @@ where
     marker
         .then_ignore(just(Token::Func))
         .then(function)
-        .map(|(marker, mut function)| {
+        .map_with(|(marker, mut function), extra| {
+            function.span = convert_span(extra.span());
             function.marker = marker;
             function
         })
