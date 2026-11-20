@@ -503,28 +503,26 @@ pub fn parser_type_used<'tok, 'src: 'tok, I>()
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
-    recursive(|type_used| {
+    recursive(|used| {
         let primitive =
-            select! { Token::Primitive(primitive) => primitive }.map_with(|primitive, extra| {
-                TypeUsed::Prim(WithSpan::new(convert_span(extra.span()), primitive))
+            select! { Token::Primitive(primitive) => primitive }.map_with(|prim, extra| {
+                TypeUsed::Prim(WithSpan::new(convert_span(extra.span()), prim))
             });
-        let array = parse_array_type(type_used.clone())
+        let array = parse_array_type(used.clone())
             .map(|array| TypeUsed::Array(array.to_box()))
             .boxed();
-        let tuple = parse_tuple_type(type_used.clone())
-            .map(TypeUsed::Tuple)
-            .boxed();
-        let complex = parse_named_type(type_used.clone())
+        let tuple = parse_tuple_type(used.clone()).map(TypeUsed::Tuple).boxed();
+        let complex = parse_named_type(used.clone())
             .map(|complex| TypeUsed::Named(complex.to_box()))
             .boxed();
-        let composite = parse_composite_type(type_used.clone())
-            .map(|composite| TypeUsed::Composite(composite.to_box()))
+        let composite = parser_composite_type(used.clone())
+            .map(|comp| TypeUsed::Composite(comp.to_box()))
             .boxed();
         let enumeration = parser_enum_type()
-            .map(|enumeration| TypeUsed::Enum(enumeration.to_box()))
+            .map(|e| TypeUsed::Enum(e.to_box()))
             .boxed();
-        let function = parse_function_type(type_used.clone())
-            .map(|function| TypeUsed::Function(function.to_box()))
+        let function = parse_function_type(used.clone())
+            .map(|func| TypeUsed::Function(func.to_box()))
             .boxed();
 
         primitive
@@ -538,37 +536,26 @@ where
     })
 }
 
-/// Parse a struct declaration or anonymous struct type.
-pub fn parser_struct_type<'tok, 'src: 'tok, I>()
--> impl Parser<'tok, I, CompositeType, extra::Err<Rich<'tok, Token>>>
+/// Parse a complex type declaration.
+pub fn parser_type_decl<'tok, 'src: 'tok, I>()
+-> impl Parser<'tok, I, TypeDecl, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
-    parse_composite_type(parser_type_used().boxed()).try_map(|composite, span| {
-        if composite.is_union {
-            Err(Rich::custom(span, "expected struct"))
-        } else {
-            Ok(composite)
-        }
-    })
+    let composite = parser_composite_type(parser_type_used().boxed())
+        .map(|comp| TypeDecl::Composite(comp.to_box()))
+        .boxed();
+    let enum_type = parser_enum_type()
+        .map(|e| TypeDecl::Enum(e.to_box()))
+        .boxed();
+    let type_alias = parser_type_alias()
+        .map(|alias| TypeDecl::Alias(alias.to_box()))
+        .boxed();
+    composite.or(enum_type).or(type_alias)
 }
 
-/// Parse a union declaration or anonymous union type.
-pub fn parser_union_type<'tok, 'src: 'tok, I>()
--> impl Parser<'tok, I, CompositeType, extra::Err<Rich<'tok, Token>>>
-where
-    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-{
-    parse_composite_type(parser_type_used().boxed()).try_map(|composite, span| {
-        if composite.is_union {
-            Ok(composite)
-        } else {
-            Err(Rich::custom(span, "expected union"))
-        }
-    })
-}
-
-fn parse_composite_type<'tok, 'src: 'tok, I, T>(
+/// Parse a struct/union declaration or anonymous struct/union type.
+pub fn parser_composite_type<'tok, 'src: 'tok, I, T>(
     type_used: T,
 ) -> impl Parser<'tok, I, CompositeType, extra::Err<Rich<'tok, Token>>>
 where

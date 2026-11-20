@@ -2,9 +2,16 @@ use super::convert_span;
 use crate::{
     lexer::{
         atom::delimiter,
-        token::{IdentOrReg, Token},
+        token::{
+            IdentOrReg,
+            Token::{self},
+        },
     },
-    parser::{composite_type::TypeDecl, function::FuncDecl, memory::VarDecl},
+    parser::{
+        composite_type::{TypeDecl, parser_type_decl},
+        function::{FuncDecl, parser_function},
+        memory::{VarDecl, parser_var_decl},
+    },
 };
 use asmanite_common::{
     ToBox,
@@ -14,8 +21,14 @@ use asmanite_common::{
     span::{Span, Spanned, WithSpan},
 };
 use chumsky::{
-    IterParser as _, Parser, error::Rich, extra, input::ValueInput, primitive::just,
-    recursive::recursive, select, span::SimpleSpan,
+    IterParser as _, Parser,
+    error::Rich,
+    extra,
+    input::ValueInput,
+    primitive::{end, just},
+    recursive::recursive,
+    select,
+    span::SimpleSpan,
 };
 
 // MARK: AST
@@ -57,11 +70,14 @@ impl Spanned for Module {
 /// Can be either a variable, function or type
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModElement {
+    /// Sub module in this module
+    Mod(Box<Module>),
+
     /// Use statement
     Use(Box<WithSpan<UseNode>>),
 
     /// Type declaration
-    Type(Box<TypeDecl>),
+    Type(TypeDecl),
 
     /// Variable declaration
     Var(Box<VarDecl>),
@@ -74,6 +90,7 @@ impl Spanned for ModElement {
     #[rustfmt::skip]
     fn span(&self) -> Span {
         match self {
+            Self::Mod (m   ) => m   .span,
             Self::Use (u   ) => u   .span,
             Self::Type(ty  ) => ty  .span(),
             Self::Var (var ) => var .span,
@@ -128,11 +145,92 @@ pub enum UseElem {
     All,
 }
 
+// MARK: Parsers
+
 /// Open brace token
 const BRACE_OPEN: Token = Token::Delimiter(delimiter::BRACE_OPEN);
 
 /// Close brace token
 const BRACE_CLOSE: Token = Token::Delimiter(delimiter::BRACE_CLOSE);
+
+/// Parser for an inline module block.
+///
+/// This parser consumes `mod name { ... }` and can be embedded in a module.
+pub fn parser_module<'tok, 'src: 'tok, I>()
+-> impl Parser<'tok, I, Module, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    let element = parser_module_element();
+    just(Token::Mod)
+        .ignore_then(select! {
+            Token::Ident(IdentOrReg::Ident(ident)) => ident,
+        })
+        .then(
+            element
+                .repeated()
+                .collect::<Vec<_>>()
+                .delimited_by(just(BRACE_OPEN), just(BRACE_CLOSE))
+                .or(just(Token::Semicolon).to(Vec::new())),
+        )
+        .map_with(|(ident, elements), extra| {
+            Module::new(convert_span(extra.span()), ident, elements)
+        })
+}
+
+/// Parser for the contents of a module source file.
+///
+/// Unlike [`parser_module`], this parser does not consume `mod name { ... }`.
+/// It consumes all module elements and requires the end of the input.
+pub fn parser_module_file_named<'tok, 'src: 'tok, I>(
+    ident: Ident,
+) -> impl Parser<'tok, I, Module, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    parser_module_element()
+        .repeated()
+        .collect::<Vec<_>>()
+        .then_ignore(end())
+        .map_with(move |elements, extra| {
+            Module::new(convert_span(extra.span()), ident.clone(), elements)
+        })
+}
+
+/// Parser for an element of a module
+pub fn parser_module_element<'tok, 'src: 'tok, I>()
+-> impl Parser<'tok, I, ModElement, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
+    recursive(|element| {
+        let inline_module = just(Token::Mod)
+            .ignore_then(select! {
+                Token::Ident(IdentOrReg::Ident(ident)) => ident,
+            })
+            .then(
+                element
+                    .clone()
+                    .repeated()
+                    .collect::<Vec<_>>()
+                    .delimited_by(just(BRACE_OPEN), just(BRACE_CLOSE))
+                    .or(just(Token::Semicolon).to(Vec::new())),
+            )
+            .map_with(|(ident, elements), extra| {
+                ModElement::Mod(Module::new(convert_span(extra.span()), ident, elements).to_box())
+            });
+
+        inline_module
+            .or(parser_use().map(|u| ModElement::Use(u.to_box())).boxed())
+            .or(parser_type_decl().map(|t| ModElement::Type(t)).boxed())
+            .or(parser_var_decl()
+                .map(|var| ModElement::Var(var.to_box()))
+                .boxed())
+            .or(parser_function()
+                .map(|func| ModElement::Func(func.to_box()))
+                .boxed())
+    })
+}
 
 /// Parse a sequence of identifiers and path separator into a path
 pub fn parser_path<'tok, 'src: 'tok, I>()
@@ -230,6 +328,58 @@ mod tests {
 
     fn ident(name: &str, children: Vec<UseNode>) -> UseNode {
         node(UseElem::Ident(Ident::new(name)), children)
+    }
+
+    fn parse_module(source: &str) -> Result<Module, ()> {
+        init_test_registers();
+        let tokens = Token::lexer(source)
+            .spanned()
+            .map(|(token, span)| (token.expect("test source should lex"), span.into()));
+        let input =
+            Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
+
+        parser_module().parse(input).into_result().map_err(|_| ())
+    }
+
+    fn parse_module_file(source: &str) -> Result<Module, ()> {
+        init_test_registers();
+        let tokens = Token::lexer(source)
+            .spanned()
+            .map(|(token, span)| (token.expect("test source should lex"), span.into()));
+        let input =
+            Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
+
+        parser_module_file_named(Ident::new("example"))
+            .parse(input)
+            .into_result()
+            .map_err(|_| ())
+    }
+
+    #[test]
+    fn parses_nested_and_empty_module_blocks() {
+        let module = parse_module("mod outer { mod inner {} }").unwrap();
+        assert_eq!(module.ident, Ident::new("outer"));
+        assert_eq!(module.elements.len(), 1);
+        assert!(matches!(module.elements[0], ModElement::Mod(_)));
+
+        let module = parse_module("mod outer {}").unwrap();
+        assert!(module.elements.is_empty());
+
+        let module = parse_module("mod outer;").unwrap();
+        assert_eq!(module.ident, Ident::new("outer"));
+        assert!(module.elements.is_empty());
+    }
+
+    #[test]
+    fn parses_a_whole_module_source_file() {
+        let module = parse_module_file("const VALUE: u8 = 1;").unwrap();
+        assert_eq!(module.ident, Ident::new("example"));
+        assert_eq!(module.elements.len(), 1);
+        assert!(matches!(module.elements[0], ModElement::Var(_)));
+
+        let empty = parse_module_file("").unwrap();
+        assert_eq!(empty.ident, Ident::new("example"));
+        assert!(empty.elements.is_empty());
     }
 
     #[test]

@@ -9,6 +9,11 @@ version   .workspace = true
 edition   .workspace = true
 license   .workspace = true
 
+# This crate is dedicated to parsing the Asmanite syntax.
+# It could be repurposed to provide syntax highlihting,
+# code formatting and other tasks related to syntax.
+# As such, it is distinct from raw code producers.
+
 [dependencies]
 
 # Common

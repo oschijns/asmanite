@@ -1,3 +1,4 @@
+use crate::ToBox;
 use core::{fmt, ops::Add};
 
 /// Invalid span for unit test purposes
@@ -162,3 +163,5 @@ impl<T: fmt::Display> fmt::Display for WithSpan<T> {
         self.atom.fmt(f)
     }
 }
+
+impl<T> ToBox for WithSpan<T> {}

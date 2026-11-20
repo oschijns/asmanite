@@ -9,11 +9,13 @@ version   .workspace = true
 edition   .workspace = true
 license   .workspace = true
 
+# This crate is dedicated to convert a generic assembly model 
+# into various assembly implementation for various CPU targets.
+# As such, it should not depend on any particular AST.
+
 [dependencies]
 
 # Common
 thiserror.workspace = true
-
-
 asmanite-common = { path = "../common" }
 

@@ -1,6 +1,9 @@
 /// Span over source code
 pub mod span;
 
+/// Identify scope in block of code
+pub mod scope;
+
 /// Literals
 pub mod literal;
 

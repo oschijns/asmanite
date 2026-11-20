@@ -1,7 +1,7 @@
 use asmanite_ast::{
     lexer::token::Token,
     parser::{
-        composite_type::{TypeUsed, parser_struct_type, parser_type_alias, parser_type_used},
+        composite_type::{TypeUsed, parser_composite_type, parser_type_alias, parser_type_used},
         expression::{Expr, parser_expr},
         function::parser_function,
         memory::{ParamType, parser_param_decl, parser_var_decl},
@@ -114,7 +114,7 @@ fn type_and_declaration_nodes_have_complete_spans() {
     assert_span(memory.span, parameter_source, 0, "value: u8 in ram".len());
 
     let composite_source = "struct Pair { left: u8 }";
-    let composite = parser_struct_type()
+    let composite = parser_composite_type(parser_type_used().boxed())
         .parse(token_input(composite_source))
         .into_result()
         .expect("struct type should parse");
