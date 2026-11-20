@@ -562,6 +562,7 @@ mod tests {
     use asmanite_common::{
         literal::{IntLit, Literal},
         primitive::def,
+        span::UNSPANNED,
     };
     use chumsky::input::{Input as _, Stream};
     use logos::Logos as _;
@@ -642,8 +643,9 @@ mod tests {
         assert_eq!(
             named.param_type,
             ParamType::Memory(ParamMem::new(
+                UNSPANNED,
                 "toto".into(),
-                TypeUsed::Prim(def::U8),
+                TypeUsed::Prim(WithSpan::unspanned(def::U8)),
                 ParamStorage::In("zeropage".into()),
             ))
         );
@@ -661,7 +663,7 @@ mod tests {
         assert!(matches!(memory.storage, ParamStorage::At(_)));
         assert_eq!(
             fixed.default_value,
-            Some(Expr::Lit(Literal::Int(IntLit(50))).to_box())
+            Some(Expr::Lit(WithSpan::unspanned(Literal::Int(IntLit(50)))).to_box())
         );
 
         let stack = parser_param_decl()
@@ -671,8 +673,9 @@ mod tests {
         assert_eq!(
             stack.param_type,
             ParamType::Memory(ParamMem::new(
+                UNSPANNED,
                 "bb".into(),
-                TypeUsed::Prim(def::U8),
+                TypeUsed::Prim(WithSpan::unspanned(def::U8)),
                 ParamStorage::Stack,
             ))
         );
@@ -684,8 +687,9 @@ mod tests {
         assert_eq!(
             comptime_param.param_type,
             ParamType::Memory(ParamMem::new(
+                UNSPANNED,
                 "bb".into(),
-                TypeUsed::Prim(def::U8),
+                TypeUsed::Prim(WithSpan::unspanned(def::U8)),
                 ParamStorage::CompTime,
             ))
         );
@@ -701,17 +705,23 @@ mod tests {
             .parse(token_input("a = 20"))
             .into_result()
             .expect("initialized register parameter should parse");
-        assert_eq!(register.param_type, ParamType::Register("a".into()));
+        assert_eq!(
+            register.param_type,
+            ParamType::Register(WithSpan::unspanned("a".into()))
+        );
         assert_eq!(
             register.default_value,
-            Some(Expr::Lit(Literal::Int(IntLit(20))).to_box())
+            Some(Expr::Lit(WithSpan::unspanned(Literal::Int(IntLit(20)))).to_box())
         );
 
         let register = parser_param_decl()
             .parse(token_input("y"))
             .into_result()
             .expect("register parameter should parse");
-        assert_eq!(register.param_type, ParamType::Register("y".into()));
+        assert_eq!(
+            register.param_type,
+            ParamType::Register(WithSpan::unspanned("y".into()))
+        );
 
         assert!(
             parser_param_decl()
@@ -733,7 +743,8 @@ mod tests {
         assert_eq!(
             banked,
             ReturnType::Memory(ReturnMem::new(
-                TypeUsed::Prim(def::U8),
+                UNSPANNED,
+                TypeUsed::Prim(WithSpan::unspanned(def::U8)),
                 ParamStorage::In("zeropage".into()),
             ))
         );
@@ -745,8 +756,9 @@ mod tests {
         assert!(matches!(
             fixed,
             ReturnType::Memory(ReturnMem {
-                type_used: TypeUsed::Prim(def::U8),
-                storage: ParamStorage::At(_)
+                type_used: TypeUsed::Prim(_),
+                storage: ParamStorage::At(_),
+                ..
             })
         ));
 
@@ -756,7 +768,7 @@ mod tests {
                     .parse(token_input(register))
                     .into_result()
                     .expect("register return type should parse"),
-                ReturnType::Register(register.into())
+                ReturnType::Register(WithSpan::unspanned(register.into()))
             );
         }
 

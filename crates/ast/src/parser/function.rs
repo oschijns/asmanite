@@ -204,8 +204,11 @@ mod tests {
     use crate::parser::memory::{MemStorage, ParamMem, ParamStorage, ReturnMem};
     use crate::parser::statement::StmtInner;
     use crate::parser::{expression::Expr, memory::ParamType};
-    use asmanite_common::literal::{IntLit, Literal};
     use asmanite_common::primitive::def;
+    use asmanite_common::{
+        literal::{IntLit, Literal},
+        span::{UNSPANNED, WithSpan},
+    };
     use chumsky::input::{Input as _, Stream};
     use logos::Logos as _;
 
@@ -234,18 +237,19 @@ mod tests {
         assert_eq!(
             function.parameters[0].param_type,
             ParamType::Memory(ParamMem::new(
+                UNSPANNED,
                 "toto".into(),
-                TypeUsed::Prim(def::U8,),
+                TypeUsed::Prim(WithSpan::unspanned(def::U8)),
                 ParamStorage::In("zeropage".into()),
             ))
         );
         assert_eq!(
             function.parameters[1].param_type,
-            ParamType::Register("a".into())
+            ParamType::Register(WithSpan::unspanned("a".into()))
         );
         assert_eq!(
             function.return_type,
-            Some(ReturnType::Register("x".into()).to_box())
+            Some(ReturnType::Register(WithSpan::unspanned("x".into())).to_box())
         );
         assert_eq!(function.block.len(), 1);
         assert!(matches!(function.block[0].inner, StmtInner::Return(_)));
@@ -282,24 +286,25 @@ mod tests {
         assert_eq!(
             banked.parameters[0].param_type,
             ParamType::Memory(ParamMem::new(
+                UNSPANNED,
                 "param".into(),
-                TypeUsed::Prim(def::U8),
+                TypeUsed::Prim(WithSpan::unspanned(def::U8)),
                 ParamStorage::In("zeropage".into()),
             ))
         );
         assert_eq!(
             banked.return_type,
-            Some(ReturnType::Register("a".into()).to_box())
+            Some(ReturnType::Register(WithSpan::unspanned("a".into())).to_box())
         );
 
         let fixed = parse_function("fn my_other at 0x1000 () -> x { }");
         assert_eq!(
             fixed.storage,
-            MemStorage::At(Expr::Lit(Literal::Int(IntLit(0x1000))).to_box())
+            MemStorage::At(Expr::Lit(WithSpan::unspanned(Literal::Int(IntLit(0x1000)))).to_box())
         );
         assert_eq!(
             fixed.return_type,
-            Some(ReturnType::Register("x".into()).to_box())
+            Some(ReturnType::Register(WithSpan::unspanned("x".into())).to_box())
         );
     }
 
@@ -311,13 +316,16 @@ mod tests {
             function.generics,
             Some(crate::parser::composite_type::Generics::new(vec![
                 GenericParam::Type("T".into()),
-                GenericParam::Const(IdentAndType::new("S".into(), TypeUsed::Prim(def::I16),)),
+                GenericParam::Const(IdentAndType::new(
+                    "S".into(),
+                    TypeUsed::Prim(WithSpan::unspanned(def::I16)),
+                )),
             ]))
         );
         assert_eq!(function.storage, MemStorage::In("prog_bank".into()));
         assert_eq!(
             function.return_type,
-            Some(ReturnType::Register("x".into()).to_box())
+            Some(ReturnType::Register(WithSpan::unspanned("x".into())).to_box())
         );
     }
 
@@ -329,11 +337,11 @@ mod tests {
         assert_eq!(function.parameters.len(), 2);
         assert_eq!(
             function.parameters[0].param_type,
-            ParamType::Register("a".into())
+            ParamType::Register(WithSpan::unspanned("a".into()))
         );
         assert_eq!(
             function.parameters[1].param_type,
-            ParamType::Register("x".into())
+            ParamType::Register(WithSpan::unspanned("x".into()))
         );
         assert!(
             function
@@ -356,13 +364,14 @@ mod tests {
         assert!(matches!(parameter.storage, ParamStorage::At(_)));
         assert_eq!(
             function.parameters[0].default_value,
-            Some(Expr::Lit(Literal::Int(IntLit(7))).to_box())
+            Some(Expr::Lit(WithSpan::unspanned(Literal::Int(IntLit(7)))).to_box())
         );
         assert_eq!(
             function.return_type,
             Some(
                 ReturnType::Memory(ReturnMem::new(
-                    TypeUsed::Prim(def::U8,),
+                    UNSPANNED,
+                    TypeUsed::Prim(WithSpan::unspanned(def::U8)),
                     ParamStorage::In("zeropage".into()),
                 ))
                 .to_box()

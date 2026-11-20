@@ -812,11 +812,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lexer::init_test_registers;
     use asmanite_common::literal::*;
+    use asmanite_common::span::UNSPANNED;
     use chumsky::input::{Input, Stream};
     use logos::Logos;
 
     fn parse_type_used(source: &str) -> TypeUsed {
+        init_test_registers();
         let tokens = Token::lexer(source)
             .spanned()
             .map(|(token, span)| (token.expect("test source should lex"), span.into()));
@@ -830,6 +833,7 @@ mod tests {
     }
 
     fn parse_generics_source(source: &str) -> Generics {
+        init_test_registers();
         let tokens = Token::lexer(source)
             .spanned()
             .map(|(token, span)| (token.expect("test source should lex"), span.into()));
@@ -843,6 +847,7 @@ mod tests {
     }
 
     fn parse_type_alias(source: &str) -> TypeAlias {
+        init_test_registers();
         let tokens = Token::lexer(source)
             .spanned()
             .map(|(token, span)| (token.expect("test source should lex"), span.into()));
@@ -859,7 +864,11 @@ mod tests {
     fn parses_type_alias_to_primitive() {
         assert_eq!(
             parse_type_alias("type Alias = u16;"),
-            TypeAlias::new("Alias".into(), TypeUsed::Prim(def::U16))
+            TypeAlias::new(
+                UNSPANNED,
+                "Alias".into(),
+                TypeUsed::Prim(WithSpan::unspanned(def::U16))
+            )
         );
     }
 
@@ -868,17 +877,21 @@ mod tests {
         assert_eq!(
             parse_type_alias("type MyAlias<G> = path_to_type::MyType<G, 3>;"),
             TypeAlias {
+                span: UNSPANNED,
                 name: "MyAlias".into(),
                 generics: Some(Generics::new(vec![GenericParam::Type("G".into())])),
                 type_used: TypeUsed::Named(
                     NamedType {
+                        span: UNSPANNED,
                         ident: Path::from_slice(&["path_to_type", "MyType"]),
                         generics: Some(
                             vec![
                                 GenericUsed::Type(TypeUsed::Named(
-                                    NamedType::new("G".into()).to_box(),
+                                    NamedType::new(UNSPANNED, "G".into()).to_box(),
                                 )),
-                                GenericUsed::Const(Expr::Lit(Literal::Int(IntLit(3)))),
+                                GenericUsed::Const(Expr::Lit(WithSpan::unspanned(Literal::Int(
+                                    IntLit(3)
+                                )))),
                             ]
                             .into_boxed_slice(),
                         ),
@@ -895,16 +908,21 @@ mod tests {
 
         assert_eq!(
             alias.type_used,
-            TypeUsed::Tuple(TupleType::new(vec![
-                TypeUsed::Prim(def::U8),
-                TypeUsed::Function(
-                    FunctionType {
-                        parameters: vec![TypeUsed::Prim(def::U16)].into_boxed_slice(),
-                        return_type: Some(TypeUsed::Prim(def::I32)),
-                    }
-                    .to_box()
-                ),
-            ]))
+            TypeUsed::Tuple(TupleType::new(
+                UNSPANNED,
+                vec![
+                    TypeUsed::Prim(WithSpan::unspanned(def::U8)),
+                    TypeUsed::Function(
+                        FunctionType {
+                            span: UNSPANNED,
+                            parameters: vec![TypeUsed::Prim(WithSpan::unspanned(def::U16))]
+                                .into_boxed_slice(),
+                            return_type: Some(TypeUsed::Prim(WithSpan::unspanned(def::I32))),
+                        }
+                        .to_box()
+                    ),
+                ]
+            ))
         );
     }
 
@@ -913,8 +931,12 @@ mod tests {
         assert_eq!(
             parse_type_used("[u8; 3]"),
             TypeUsed::Array(
-                ArrayType::new(TypeUsed::Prim(def::U8), Expr::Lit(Literal::Int(IntLit(3))),)
-                    .to_box()
+                ArrayType::new(
+                    UNSPANNED,
+                    TypeUsed::Prim(WithSpan::unspanned(def::U8)),
+                    Expr::Lit(WithSpan::unspanned(Literal::Int(IntLit(3)))),
+                )
+                .to_box()
             )
         );
     }
@@ -923,11 +945,14 @@ mod tests {
     fn parses_tuple_type() {
         assert_eq!(
             parse_type_used("(u8, u16, i32)"),
-            TypeUsed::Tuple(TupleType::new(vec![
-                TypeUsed::Prim(def::U8),
-                TypeUsed::Prim(def::U16),
-                TypeUsed::Prim(def::I32),
-            ]))
+            TypeUsed::Tuple(TupleType::new(
+                UNSPANNED,
+                vec![
+                    TypeUsed::Prim(WithSpan::unspanned(def::U8)),
+                    TypeUsed::Prim(WithSpan::unspanned(def::U16)),
+                    TypeUsed::Prim(WithSpan::unspanned(def::I32)),
+                ]
+            ))
         );
     }
 
@@ -937,11 +962,14 @@ mod tests {
             parse_type_used("path::to::MyType<i16, 3>"),
             TypeUsed::Named(
                 NamedType {
+                    span: UNSPANNED,
                     ident: Path::from_slice(&["path", "to", "MyType"]),
                     generics: Some(
                         vec![
-                            GenericUsed::Type(TypeUsed::Prim(def::I16)),
-                            GenericUsed::Const(Expr::Lit(Literal::Int(IntLit(3)))),
+                            GenericUsed::Type(TypeUsed::Prim(WithSpan::unspanned(def::I16))),
+                            GenericUsed::Const(Expr::Lit(WithSpan::unspanned(Literal::Int(
+                                IntLit(3)
+                            )))),
                         ]
                         .into_boxed_slice(),
                     ),
@@ -957,9 +985,13 @@ mod tests {
             parse_type_used("fn(u8, i16) -> i8"),
             TypeUsed::Function(
                 FunctionType {
-                    parameters: vec![TypeUsed::Prim(def::U8), TypeUsed::Prim(def::I16),]
-                        .into_boxed_slice(),
-                    return_type: Some(TypeUsed::Prim(def::I8)),
+                    span: UNSPANNED,
+                    parameters: vec![
+                        TypeUsed::Prim(WithSpan::unspanned(def::U8)),
+                        TypeUsed::Prim(WithSpan::unspanned(def::I16)),
+                    ]
+                    .into_boxed_slice(),
+                    return_type: Some(TypeUsed::Prim(WithSpan::unspanned(def::I8))),
                 }
                 .to_box()
             )
@@ -978,8 +1010,8 @@ mod tests {
         assert_eq!(
             structure.fields.as_ref(),
             &[
-                IdentAndType::new("toto".into(), TypeUsed::Prim(def::U8)),
-                IdentAndType::new("tata".into(), TypeUsed::Prim(def::I16)),
+                IdentAndType::new("toto".into(), TypeUsed::Prim(WithSpan::unspanned(def::U8))),
+                IdentAndType::new("tata".into(), TypeUsed::Prim(WithSpan::unspanned(def::I16))),
             ]
         );
 
@@ -992,8 +1024,8 @@ mod tests {
         assert_eq!(
             union.fields.as_ref(),
             &[
-                IdentAndType::new("var1".into(), TypeUsed::Prim(def::U8)),
-                IdentAndType::new("var2".into(), TypeUsed::Prim(def::I8)),
+                IdentAndType::new("var1".into(), TypeUsed::Prim(WithSpan::unspanned(def::U8))),
+                IdentAndType::new("var2".into(), TypeUsed::Prim(WithSpan::unspanned(def::I8))),
             ]
         );
     }
@@ -1010,14 +1042,18 @@ mod tests {
             array.generics,
             Some(Generics::new(vec![
                 GenericParam::Type("T".into()),
-                GenericParam::Const(IdentAndType::new("S".into(), TypeUsed::Prim(def::U8),)),
+                GenericParam::Const(IdentAndType::new(
+                    "S".into(),
+                    TypeUsed::Prim(WithSpan::unspanned(def::U8)),
+                )),
             ]))
         );
         assert!(matches!(
             &array.fields[0].type_used,
             TypeUsed::Array(array)
-                if array.cell_type == TypeUsed::Named(NamedType::new("T".into()).to_box())
-                    && array.size == Expr::Var("S".into())
+                if array.cell_type
+                    == TypeUsed::Named(NamedType::new(UNSPANNED, "T".into()).to_box())
+                    && array.size == Expr::Var(WithSpan::unspanned("S".into()))
         ));
     }
 
@@ -1027,7 +1063,10 @@ mod tests {
             parse_generics_source("<T, const S: i16>"),
             Generics::new(vec![
                 GenericParam::Type("T".into()),
-                GenericParam::Const(IdentAndType::new("S".into(), TypeUsed::Prim(def::I16),)),
+                GenericParam::Const(IdentAndType::new(
+                    "S".into(),
+                    TypeUsed::Prim(WithSpan::unspanned(def::I16)),
+                )),
             ])
         );
     }
@@ -1086,7 +1125,10 @@ mod tests {
             enumeration.variants.as_ref(),
             &[
                 ("INT".into(), None),
-                ("FLOAT".into(), Some(Expr::Lit(Literal::Int(IntLit(2))))),
+                (
+                    "FLOAT".into(),
+                    Some(Expr::Lit(WithSpan::unspanned(Literal::Int(IntLit(2)))))
+                ),
                 ("STRING".into(), None),
             ]
         );

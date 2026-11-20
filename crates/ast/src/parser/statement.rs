@@ -800,6 +800,7 @@ mod tests {
         literal::{IntLit, Literal},
         operator::{assign::ASSIGN, op},
         primitive::def,
+        span::{UNSPANNED, WithSpan},
     };
     use chumsky::input::{Input, Stream};
     use logos::Logos;
@@ -905,7 +906,7 @@ mod tests {
 
         assert_eq!(
             declaration.storage,
-            MemStorage::At(Expr::Var("ADDRESS".into()).to_box())
+            MemStorage::At(Expr::Var(WithSpan::unspanned("ADDRESS".into())).to_box())
         );
         assert!(matches!(
             declaration.assign_expr,
@@ -919,7 +920,7 @@ mod tests {
 
         assert_eq!(
             declaration.storage,
-            MemStorage::At(Expr::Lit(Literal::Int(IntLit(16))).to_box())
+            MemStorage::At(Expr::Lit(WithSpan::unspanned(Literal::Int(IntLit(16)))).to_box())
         );
     }
 
@@ -1028,7 +1029,11 @@ else                 { var third:  u8; }
             assert_eq!(statement.label, None);
             assert_eq!(
                 statement.inner,
-                StmtInner::LoopCtrl(LoopCtrl { ctrl_type, label })
+                StmtInner::LoopCtrl(LoopCtrl {
+                    span: UNSPANNED,
+                    ctrl_type,
+                    label,
+                })
             );
         }
     }
@@ -1039,6 +1044,7 @@ else                 { var third:  u8; }
         assert_eq!(
             statement.inner,
             StmtInner::Goto(Goto {
+                span: UNSPANNED,
                 label: Ident("target".into())
             })
         );
@@ -1055,19 +1061,23 @@ else                 { var third:  u8; }
     fn parses_return_with_or_without_value() {
         assert_eq!(
             parse_statement("return;").inner,
-            StmtInner::Return(Return::new())
+            StmtInner::Return(Return::new(UNSPANNED))
         );
 
         assert_eq!(
             parse_statement("return result + 1;").inner,
-            StmtInner::Return(Return::with_value(Expr::Binary(
-                BinaryOp::new(
-                    op::ADD,
-                    Expr::Var("result".into()),
-                    Expr::Lit(Literal::Int(IntLit(1))),
+            StmtInner::Return(Return::with_value(
+                UNSPANNED,
+                Expr::Binary(
+                    BinaryOp::new(
+                        UNSPANNED,
+                        op::ADD,
+                        Expr::Var(WithSpan::unspanned("result".into())),
+                        Expr::Lit(WithSpan::unspanned(Literal::Int(IntLit(1)))),
+                    )
+                    .to_box()
                 )
-                .to_box()
-            )))
+            ))
         );
     }
 
@@ -1081,9 +1091,10 @@ else                 { var third:  u8; }
             instr.expr,
             Expr::Assign(
                 AssignOp::new(
+                    UNSPANNED,
                     ASSIGN,
-                    Expr::Register("a".into()),
-                    Expr::Lit(Literal::Int(IntLit(10))),
+                    Expr::Register(WithSpan::unspanned("a".into())),
+                    Expr::Lit(WithSpan::unspanned(Literal::Int(IntLit(10)))),
                 )
                 .to_box()
             )
@@ -1118,15 +1129,18 @@ else                 { var third:  u8; }
             panic!("expected switch statement");
         };
 
-        assert_eq!(switch.variable, Expr::Var("value".into()));
+        assert_eq!(
+            switch.variable,
+            Expr::Var(WithSpan::unspanned("value".into()))
+        );
         assert_eq!(switch.cases.len(), 3);
         assert_eq!(
             switch.cases[0].condition,
-            Some(Expr::Lit(Literal::Int(IntLit(0))).to_box())
+            Some(Expr::Lit(WithSpan::unspanned(Literal::Int(IntLit(0)))).to_box())
         );
         assert_eq!(
             switch.cases[1].condition,
-            Some(Expr::Lit(Literal::Int(IntLit(1))).to_box())
+            Some(Expr::Lit(WithSpan::unspanned(Literal::Int(IntLit(1)))).to_box())
         );
         assert!(switch.cases[2].condition.is_none());
         assert!(matches!(switch.cases[0].block[0].inner, StmtInner::Var(_)));
@@ -1169,16 +1183,23 @@ else                 { var third:  u8; }
             ident,
             type_used,
             storage,
+            ..
         }) = header.iter
         else {
             panic!("expected variable iterator");
         };
         assert_eq!(ident, "i".into());
-        assert_eq!(type_used, TypeUsed::Prim(def::U8));
+        assert_eq!(type_used, TypeUsed::Prim(WithSpan::unspanned(def::U8)));
         assert_eq!(storage, ParamStorage::In("zeropage".into()));
         assert_eq!(header.range, Range::excl());
-        assert_eq!(header.start, Expr::Lit(Literal::Int(IntLit(0))));
-        assert_eq!(header.end, Expr::Lit(Literal::Int(IntLit(10))));
+        assert_eq!(
+            header.start,
+            Expr::Lit(WithSpan::unspanned(Literal::Int(IntLit(0))))
+        );
+        assert_eq!(
+            header.end,
+            Expr::Lit(WithSpan::unspanned(Literal::Int(IntLit(10))))
+        );
         assert_eq!(header.step, None);
     }
 
@@ -1193,22 +1214,29 @@ else                 { var third:  u8; }
             ident,
             type_used,
             storage,
+            ..
         }) = header.iter
         else {
             panic!("expected variable iterator");
         };
         assert_eq!(
             storage,
-            ParamStorage::At(Expr::Lit(Literal::Int(IntLit(256))).to_box())
+            ParamStorage::At(Expr::Lit(WithSpan::unspanned(Literal::Int(IntLit(256)))).to_box())
         );
         assert_eq!(ident, "i".into());
-        assert_eq!(type_used, TypeUsed::Prim(def::U8));
+        assert_eq!(type_used, TypeUsed::Prim(WithSpan::unspanned(def::U8)));
         assert_eq!(header.range, Range::incl());
-        assert_eq!(header.start, Expr::Lit(Literal::Int(IntLit(10))));
-        assert_eq!(header.end, Expr::Lit(Literal::Int(IntLit(100))));
+        assert_eq!(
+            header.start,
+            Expr::Lit(WithSpan::unspanned(Literal::Int(IntLit(10))))
+        );
+        assert_eq!(
+            header.end,
+            Expr::Lit(WithSpan::unspanned(Literal::Int(IntLit(100))))
+        );
         assert_eq!(
             header.step,
-            Some(Expr::Lit(Literal::Int(IntLit(2))).to_box())
+            Some(Expr::Lit(WithSpan::unspanned(Literal::Int(IntLit(2)))).to_box())
         );
     }
 
@@ -1220,6 +1248,9 @@ else                 { var third:  u8; }
             panic!("expected for loop");
         };
 
-        assert_eq!(header.iter, ParamType::Register("x".into()));
+        assert_eq!(
+            header.iter,
+            ParamType::Register(WithSpan::unspanned("x".into()))
+        );
     }
 }

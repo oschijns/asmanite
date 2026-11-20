@@ -484,6 +484,7 @@ mod tests {
             assign::{self, ASSIGN},
         },
         primitive::def,
+        span::{UNSPANNED, WithSpan},
     };
     use chumsky::input::{Input, Stream};
     use logos::Logos;
@@ -534,7 +535,11 @@ mod tests {
     fn parses_function_call() {
         assert_eq!(
             parse_call("my::func(a, 2)"),
-            FunctionCall::new("my::func".into(), vec![parse_expr("a"), parse_expr("2")])
+            FunctionCall::new(
+                UNSPANNED,
+                "my::func".into(),
+                vec![parse_expr("a"), parse_expr("2")]
+            )
         );
     }
 
@@ -543,12 +548,14 @@ mod tests {
         assert_eq!(
             parse_index("a[1 + 2]"),
             IndexOp {
-                expr: Expr::Register("a".into()),
+                span: UNSPANNED,
+                expr: Expr::Register(WithSpan::unspanned("a".into())),
                 index: Expr::Binary(
                     BinaryOp::new(
+                        UNSPANNED,
                         Operator::new(OpType::Add),
-                        Expr::Lit(Literal::Int(IntLit(1))),
-                        Expr::Lit(Literal::Int(IntLit(2))),
+                        Expr::Lit(WithSpan::unspanned(Literal::Int(IntLit(1)))),
+                        Expr::Lit(WithSpan::unspanned(Literal::Int(IntLit(2)))),
                     )
                     .to_box(),
                 ),
@@ -564,7 +571,10 @@ mod tests {
             ("carry", StatusFlag::Carry),
             ("overflow", StatusFlag::Overflow),
         ] {
-            assert_eq!(parse_expr(source), Expr::Status(status));
+            assert_eq!(
+                parse_expr(source),
+                Expr::Status(WithSpan::unspanned(status))
+            );
         }
     }
 
@@ -572,12 +582,18 @@ mod tests {
     fn distinguishes_registers_from_variables() {
         init_test_registers();
 
-        assert_eq!(parse_expr("a"), Expr::Register("a".into()));
+        assert_eq!(
+            parse_expr("a"),
+            Expr::Register(WithSpan::unspanned("a".into()))
+        );
         assert_eq!(
             parse_expr("ordinary_name"),
-            Expr::Var("ordinary_name".into())
+            Expr::Var(WithSpan::unspanned("ordinary_name".into()))
         );
-        assert_eq!(parse_expr("module::func"), Expr::Var("module::func".into()));
+        assert_eq!(
+            parse_expr("module::func"),
+            Expr::Var(WithSpan::unspanned("module::func".into()))
+        );
         assert!(matches!(parse_expr("func()"), Expr::Call(_)));
     }
 
@@ -589,13 +605,15 @@ mod tests {
             expr,
             Expr::Binary(
                 BinaryOp::new(
+                    UNSPANNED,
                     Operator::new(OpType::Add),
-                    Expr::Register("a".into()),
+                    Expr::Register(WithSpan::unspanned("a".into())),
                     Expr::Binary(
                         BinaryOp::new(
+                            UNSPANNED,
                             Operator::new(OpType::Mul),
-                            Expr::Var("b".into()),
-                            Expr::Var("c".into())
+                            Expr::Var(WithSpan::unspanned("b".into())),
+                            Expr::Var(WithSpan::unspanned("c".into()))
                         )
                         .to_box(),
                     ),
@@ -611,17 +629,16 @@ mod tests {
             parse_expr("(a + b) as u8"),
             Expr::Cast(
                 TypeCast::new(
-                    Expr::Group(
-                        Expr::Binary(
-                            BinaryOp::new(
-                                Operator::new(OpType::Add),
-                                Expr::Register("a".into()),
-                                Expr::Var("b".into()),
-                            )
-                            .to_box()
+                    UNSPANNED,
+                    Expr::Group(Box::new(WithSpan::unspanned(Expr::Binary(
+                        BinaryOp::new(
+                            UNSPANNED,
+                            Operator::new(OpType::Add),
+                            Expr::Register(WithSpan::unspanned("a".into())),
+                            Expr::Var(WithSpan::unspanned("b".into())),
                         )
                         .to_box()
-                    ),
+                    )))),
                     def::U8,
                 )
                 .to_box()
@@ -635,12 +652,14 @@ mod tests {
             parse_expr("a * -3"),
             Expr::Binary(
                 BinaryOp::new(
+                    UNSPANNED,
                     Operator::new(OpType::Mul),
-                    Expr::Register("a".into()),
+                    Expr::Register(WithSpan::unspanned("a".into())),
                     Expr::Unary(
                         UnaryOp::new(
+                            UNSPANNED,
                             Operator::new(OpType::Sub),
-                            Expr::Lit(Literal::Int(IntLit(3))),
+                            Expr::Lit(WithSpan::unspanned(Literal::Int(IntLit(3)))),
                         )
                         .to_box()
                     ),
@@ -672,17 +691,18 @@ mod tests {
 
     #[test]
     fn parses_chained_assignments_right_associatively() {
-        let a = Expr::Register("a".into());
-        let b = Expr::Var("b".into());
-        let c = Expr::Var("c".into());
+        let a = Expr::Register(WithSpan::unspanned("a".into()));
+        let b = Expr::Var(WithSpan::unspanned("b".into()));
+        let c = Expr::Var(WithSpan::unspanned("c".into()));
 
         assert_eq!(
             parse_expr("a = b = c"),
             Expr::Assign(
                 AssignOp::new(
+                    UNSPANNED,
                     ASSIGN,
                     a.clone(),
-                    Expr::Assign(AssignOp::new(ASSIGN, b.clone(), c.clone()).to_box()),
+                    Expr::Assign(AssignOp::new(UNSPANNED, ASSIGN, b.clone(), c.clone()).to_box()),
                 )
                 .to_box()
             )
@@ -692,9 +712,10 @@ mod tests {
             parse_expr("a = b += c"),
             Expr::Assign(
                 AssignOp::new(
+                    UNSPANNED,
                     ASSIGN,
                     a,
-                    Expr::Assign(AssignOp::new(assign::ADD, b, c).to_box()),
+                    Expr::Assign(AssignOp::new(UNSPANNED, assign::ADD, b, c).to_box()),
                 )
                 .to_box()
             )
@@ -716,9 +737,10 @@ mod tests {
                 parse_expr(source),
                 Expr::Binary(
                     BinaryOp::new(
+                        UNSPANNED,
                         Operator::carry(op_type),
-                        Expr::Register("a".into()),
-                        Expr::Var("b".into()),
+                        Expr::Register(WithSpan::unspanned("a".into())),
+                        Expr::Var(WithSpan::unspanned("b".into())),
                     )
                     .to_box()
                 ),
@@ -742,9 +764,10 @@ mod tests {
                 parse_expr(source),
                 Expr::Assign(
                     AssignOp::new(
+                        UNSPANNED,
                         Assign::op_carry(op_type),
-                        Expr::Register("a".into()),
-                        Expr::Var("b".into()),
+                        Expr::Register(WithSpan::unspanned("a".into())),
+                        Expr::Var(WithSpan::unspanned("b".into())),
                     )
                     .to_box()
                 ),
@@ -763,6 +786,6 @@ mod tests {
         let Expr::Group(group) = unary.expr else {
             panic!("expected grouped expression");
         };
-        assert!(matches!(*group, Expr::Call(_)));
+        assert!(matches!(group.atom, Expr::Call(_)));
     }
 }

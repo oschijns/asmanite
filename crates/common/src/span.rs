@@ -1,7 +1,10 @@
 use core::{fmt, ops::Add};
 
+/// Invalid span for unit test purposes
+pub const UNSPANNED: Span = Span::invalid();
+
 /// Span over a source code
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Eq)]
 pub struct Span {
     /// Start of the span
     pub start: u32,
@@ -13,7 +16,7 @@ pub struct Span {
 impl Span {
     /// Create a new span
     #[inline]
-    pub fn new(start: usize, end: usize) -> Self {
+    pub const fn new(start: usize, end: usize) -> Self {
         Self {
             start: start as u32,
             end: end as u32,
@@ -22,7 +25,7 @@ impl Span {
 
     /// Create an invalid span
     #[inline]
-    pub fn invalid() -> Self {
+    pub const fn invalid() -> Self {
         Self {
             start: u32::MAX,
             end: u32::MAX,
@@ -58,6 +61,18 @@ impl Add for Span {
             start: self.start.min(rhs.start),
             end: self.end.max(rhs.end),
         }
+    }
+}
+
+/// Ignore span comparison in unit-tests
+pub static mut IGNORE_SPAN: bool = false;
+
+impl PartialEq for Span {
+    /// Compare two spans
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        let result = self.start == other.start && self.end == other.end;
+        unsafe { IGNORE_SPAN || result }
     }
 }
 
