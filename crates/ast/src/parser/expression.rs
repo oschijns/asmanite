@@ -1,10 +1,14 @@
 use super::convert_span;
 use crate::{
-    lexer::{atom::*, token::Token},
+    lexer::{
+        atom::*,
+        token::{IdentOrReg, Token},
+    },
     parser::{memory::parser_register, module::parser_path},
 };
 use asmanite_common::{
     ToBox,
+    ident::Ident,
     literal::Literal,
     operator::{Assign, OpType, Operator},
     path::Path,
@@ -47,6 +51,9 @@ pub enum Expr {
     /// Assign operation
     Assign(Box<AssignOp>),
 
+    /// Field access
+    Access(Box<FieldAccess>),
+
     /// Indexing operation
     Index(Box<IndexOp>),
 
@@ -73,6 +80,7 @@ impl Spanned for Expr {
             Self::Unary   (unary ) => unary .span,
             Self::Binary  (binary) => binary.span,
             Self::Assign  (assign) => assign.span,
+            Self::Access  (access) => access.span,
             Self::Index   (index ) => index .span,
             Self::Call    (func  ) => func  .span,
             Self::Cast    (cast  ) => cast  .span,
@@ -172,6 +180,28 @@ impl AssignOp {
 impl ToBox for AssignOp {}
 
 impl Spanned for AssignOp {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
+/// Field access operation
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldAccess {
+    /// Span of the access
+    pub span: Span,
+
+    /// Expression to structure to access
+    pub expr: Expr,
+
+    /// field being accessed
+    pub field: Ident,
+}
+
+impl ToBox for FieldAccess {}
+
+impl Spanned for FieldAccess {
     #[inline]
     fn span(&self) -> Span {
         self.span
@@ -293,13 +323,10 @@ where
             Expr::Status(WithSpan::new(convert_span(extra.span()), status))
         });
 
-        let arguments = expr
-            .clone()
-            .separated_by(just(Token::Comma))
-            .allow_trailing()
-            .collect::<Vec<_>>()
-            .delimited_by(just(PAREN_OPEN), just(PAREN_CLOSE));
+        // sub-parser for function call arguments
+        let arguments = parser_expr_seq(expr.clone(), DelimType::Paren).boxed();
 
+        // path to a variable or a function
         let path =
             parser_path()
                 .boxed()
@@ -332,7 +359,7 @@ where
         let bitmasks = gen_op_bitmasks();
 
         // Allocate storage for all the operator types
-        let mut operators = Vec::with_capacity(bitmasks.len() + 3);
+        let mut operators = Vec::with_capacity(bitmasks.len() + 5);
 
         // Add the binary operators, then the unary ones and the assignments.
         operators.push(parse_type_cast().boxed());
@@ -340,6 +367,8 @@ where
         for (&(assoc, prec), &mask) in bitmasks.iter() {
             operators.push(parse_binary_op(assoc, prec, mask).boxed());
         }
+        operators.push(parse_field_access().boxed());
+        operators.push(parser_index_op(expr.clone()).boxed());
         if allow_assign {
             operators.push(parse_assign_op().boxed());
         }
@@ -350,39 +379,69 @@ where
 }
 
 /// Parse an index operation
-pub fn parser_index_op<'tok, 'src: 'tok, I>()
--> impl Parser<'tok, I, IndexOp, extra::Err<Rich<'tok, Token>>>
+pub fn parser_index_op<'tok, 'src: 'tok, I, E>(
+    expr: E,
+) -> impl PrattOperator<'tok, I, Expr, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+    E: Parser<'tok, I, Expr, extra::Err<Rich<'tok, Token>>> + Clone + 'tok,
 {
-    parser_expr(true)
-        .then_ignore(just(BRACKET_OPEN))
-        .then(parser_expr(true))
-        .then_ignore(just(BRACKET_CLOSE))
-        .map_with(|(expr, index), extra| IndexOp {
-            span: convert_span(extra.span()),
-            expr,
-            index,
-        })
+    let index = just(BRACKET_OPEN)
+        .ignore_then(expr)
+        .then_ignore(just(BRACKET_CLOSE));
+
+    pratt::postfix(PREC_INDEX, index, |expr, index, extra| {
+        Expr::Index(
+            IndexOp {
+                span: convert_span(extra.span()),
+                expr,
+                index,
+            }
+            .to_box(),
+        )
+    })
 }
 
-/// Parse a function call
-pub fn parser_function_call<'tok, 'src: 'tok, I>()
--> impl Parser<'tok, I, FunctionCall, extra::Err<Rich<'tok, Token>>>
+/// Parse a field access operation
+pub fn parse_field_access<'tok, 'src: 'tok, I>()
+-> impl PrattOperator<'tok, I, Expr, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
-    let arguments = parser_expr(true)
-        .separated_by(just(Token::Comma))
+    let field = just(Token::Period).ignore_then(select! {
+        Token::Ident(IdentOrReg::Ident(ident)) => ident,
+    });
+
+    pratt::postfix(PREC_FIELD, field, |expr, field, extra| {
+        Expr::Access(
+            FieldAccess {
+                span: convert_span(extra.span()),
+                expr,
+                field,
+            }
+            .to_box(),
+        )
+    })
+}
+
+/// Parse a sequence of expressions separated by commas
+pub fn parser_expr_seq<'tok, 'src: 'tok, I, E>(
+    expr: E,
+    delim_type: DelimType,
+) -> impl Parser<'tok, I, Vec<Expr>, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+    E: Parser<'tok, I, Expr, extra::Err<Rich<'tok, Token>>> + Clone + 'tok,
+{
+    // Generate the two expected delimiters
+    let open = Token::Delimiter(Delimiter::open(delim_type));
+    let close = Token::Delimiter(Delimiter::close(delim_type));
+
+    // Aggregate expressions delimited by commas
+    expr.separated_by(just(Token::Comma))
         .allow_trailing()
         .collect::<Vec<_>>()
-        .delimited_by(just(PAREN_OPEN), just(PAREN_CLOSE));
-
-    parser_path()
-        .then(arguments)
-        .map_with(|(callee, args), extra| {
-            FunctionCall::new(convert_span(extra.span()), callee, args)
-        })
+        .delimited_by(just(open), just(close))
 }
 
 /// Parse a unary operator
@@ -504,31 +563,17 @@ mod tests {
     }
 
     fn parse_call(source: &str) -> FunctionCall {
-        init_test_registers();
-        let tokens = Token::lexer(source)
-            .spanned()
-            .map(|(token, span)| (token.expect("test source should lex"), span.into()));
-        let input =
-            Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
-
-        parser_function_call()
-            .parse(input)
-            .into_result()
-            .expect("test source should parse")
+        match parse_expr(source) {
+            Expr::Call(call) => *call,
+            _ => panic!("expected function call"),
+        }
     }
 
     fn parse_index(source: &str) -> IndexOp {
-        init_test_registers();
-        let tokens = Token::lexer(source)
-            .spanned()
-            .map(|(token, span)| (token.expect("test source should lex"), span.into()));
-        let input =
-            Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
-
-        parser_index_op()
-            .parse(input)
-            .into_result()
-            .expect("test source should parse")
+        match parse_expr(source) {
+            Expr::Index(index) => *index,
+            _ => panic!("expected index operation"),
+        }
     }
 
     #[test]
@@ -561,6 +606,38 @@ mod tests {
                 ),
             }
         );
+    }
+
+    #[test]
+    fn parses_index_and_chained_field_access() {
+        let Expr::Index(index) = parse_expr("my_var[ID + 1]") else {
+            panic!("expected index operation");
+        };
+        assert!(matches!(index.expr, Expr::Var(_)));
+        assert!(matches!(index.index, Expr::Binary(_)));
+
+        let Expr::Access(field) = parse_expr("my_other.sub_struct.field") else {
+            panic!("expected field access");
+        };
+        assert_eq!(field.field, "field".into());
+        let Expr::Access(parent) = field.expr else {
+            panic!("expected chained field access");
+        };
+        assert_eq!(parent.field, "sub_struct".into());
+        assert!(matches!(parent.expr, Expr::Var(_)));
+    }
+
+    #[test]
+    fn parses_chained_index_and_field_access() {
+        let expr = parse_expr("my_var[ID + 1].sub_struct[2]");
+        let Expr::Index(index) = expr else {
+            panic!("expected final index operation");
+        };
+        let Expr::Access(field) = index.expr else {
+            panic!("expected field access before final index");
+        };
+        assert_eq!(field.field, "sub_struct".into());
+        assert!(matches!(field.expr, Expr::Index(_)));
     }
 
     #[test]

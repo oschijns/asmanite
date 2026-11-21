@@ -57,6 +57,40 @@ fn expressions_and_operators_have_complete_spans() {
 }
 
 #[test]
+fn field_and_index_accesses_have_complete_spans() {
+    let source = "my_other.sub_struct[ID + 1].field";
+    let expr = parser_expr(false)
+        .parse(token_input(source))
+        .into_result()
+        .expect("field and index expression should parse");
+
+    let Expr::Access(field) = expr else {
+        panic!("expected field access");
+    };
+    assert_span(field.span, source, 0, source.len());
+
+    let Expr::Index(index) = field.expr else {
+        panic!("expected index operation");
+    };
+    assert_span(
+        index.span,
+        source,
+        0,
+        source.find("].").expect("index should close") + 1,
+    );
+
+    let Expr::Access(parent) = index.expr else {
+        panic!("expected field access before index");
+    };
+    assert_span(
+        parent.span,
+        source,
+        0,
+        source.find('[').expect("index operation should open"),
+    );
+}
+
+#[test]
 fn unary_cast_and_group_spans_cover_the_full_expression() {
     let source = "-(1 as u8)";
     let expr = parser_expr(false)

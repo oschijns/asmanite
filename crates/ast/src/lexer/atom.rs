@@ -53,9 +53,6 @@ impl Associativity {
     }
 }
 
-/// Associativity of type cast operation
-pub const ASSOC_TYPE_CAST: Associativity = Associativity::Left;
-
 /// Precendence of type cast operation
 pub const PREC_TYPE_CAST: Precedence = 39;
 
@@ -65,8 +62,8 @@ pub const ASSOC_ASSIGN: Associativity = Associativity::Right;
 /// Precendence of assignement expression is always the same
 pub const PREC_ASSIGN: Precedence = 10;
 
-/// Associativity of indexing operation
-pub const ASSOC_INDEX: Associativity = Associativity::Left;
+/// Precendence of field access operation
+pub const PREC_FIELD: Precedence = 42;
 
 /// Precendence of indexing operation
 pub const PREC_INDEX: Precedence = 41;

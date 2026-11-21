@@ -521,7 +521,7 @@ where
         let enumeration = parser_enum_type()
             .map(|e| TypeUsed::Enum(e.to_box()))
             .boxed();
-        let function = parse_function_type(used.clone())
+        let function = parser_function_type(used.clone())
             .map(|func| TypeUsed::Function(func.to_box()))
             .boxed();
 
@@ -759,15 +759,7 @@ where
 }
 
 /// Parse a function type such as `fn(u8, i16) -> i8`.
-pub fn parser_function_type<'tok, 'src: 'tok, I>()
--> impl Parser<'tok, I, FunctionType, extra::Err<Rich<'tok, Token>>>
-where
-    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-{
-    parse_function_type(parser_type_used().boxed())
-}
-
-fn parse_function_type<'tok, 'src: 'tok, I, T>(
+pub fn parser_function_type<'tok, 'src: 'tok, I, T>(
     type_used: T,
 ) -> impl Parser<'tok, I, FunctionType, extra::Err<Rich<'tok, Token>>>
 where
