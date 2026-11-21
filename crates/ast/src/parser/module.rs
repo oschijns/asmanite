@@ -66,6 +66,9 @@ impl Spanned for Module {
 /// Can be either a variable, function or type
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModElement {
+    /// Module declaration referencing another file
+    ModDecl(WithSpan<Ident>),
+
     /// Sub module in this module
     Mod(Box<Module>),
 
@@ -86,11 +89,12 @@ impl Spanned for ModElement {
     #[rustfmt::skip]
     fn span(&self) -> Span {
         match self {
-            Self::Mod (m   ) => m   .span,
-            Self::Use (u   ) => u   .span,
-            Self::Type(ty  ) => ty  .span(),
-            Self::Var (var ) => var .span,
-            Self::Func(func) => func.span,
+            Self::ModDecl(md  ) => md  .span,
+            Self::Mod    (md  ) => md  .span,
+            Self::Use    (u   ) => u   .span,
+            Self::Type   (ty  ) => ty  .span(),
+            Self::Var    (var ) => var .span,
+            Self::Func   (func) => func.span,
         }
     }
 }
@@ -204,7 +208,9 @@ where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
 {
     recursive(|element| {
-        let inline_module = just(Token::Mod)
+        // `mod name { ... }` defines an inline module,
+        // `mod name;` declares a module defined in another file.
+        let module = just(Token::Mod)
             .ignore_then(select! {
                 Token::Ident(IdentOrReg::Ident(ident)) => ident,
             })
@@ -214,13 +220,18 @@ where
                     .repeated()
                     .collect::<Vec<_>>()
                     .delimited_by(just(BRACE_OPEN), just(BRACE_CLOSE))
-                    .or(just(Token::Semicolon).to(Vec::new())),
+                    .map(Some)
+                    .or(just(Token::Semicolon).to(None)),
             )
             .map_with(|(ident, elements), extra| {
-                ModElement::Mod(Module::new(convert_span(extra.span()), ident, elements).to_box())
+                let span = convert_span(extra.span());
+                match elements {
+                    Some(elements) => ModElement::Mod(Module::new(span, ident, elements).to_box()),
+                    None => ModElement::ModDecl(WithSpan::new(span, ident)),
+                }
             });
 
-        inline_module
+        module
             .or(parser_use().map(|u| ModElement::Use(u.to_box())).boxed())
             .or(parse_type.map(ModElement::Type).boxed())
             .or(parse_var.map(|var| ModElement::Var(var.to_box())).boxed())
@@ -384,6 +395,29 @@ mod tests {
         let empty = parse_module_file("").unwrap();
         assert_eq!(empty.ident, Ident::new("example"));
         assert!(empty.elements.is_empty());
+    }
+
+    #[test]
+    fn distinguishes_module_declarations_from_inline_modules() {
+        let source = "mod external; mod local { mod nested; }";
+        let module = parse_module_file(source).unwrap();
+        assert_eq!(module.elements.len(), 2);
+
+        let ModElement::ModDecl(decl) = &module.elements[0] else {
+            panic!("expected module declaration");
+        };
+        assert_eq!(decl.atom, Ident::new("external"));
+        assert_eq!(decl.span, Span::new(0, "mod external;".len()));
+
+        let ModElement::Mod(inline) = &module.elements[1] else {
+            panic!("expected inline module");
+        };
+        assert_eq!(inline.ident, Ident::new("local"));
+        assert_eq!(inline.elements.len(), 1);
+        assert!(matches!(
+            &inline.elements[0],
+            ModElement::ModDecl(decl) if decl.atom == Ident::new("nested")
+        ));
     }
 
     #[test]

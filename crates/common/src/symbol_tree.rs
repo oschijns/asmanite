@@ -1,32 +1,34 @@
 use crate::{ident::Ident, path::Path};
 use indextree::{Arena, NodeId};
-use std::collections::HashMap;
 
 /// Name of the root module which is reserved
-const ROOT: &str = "crate";
+pub const ROOT: &str = "root";
 
 /// Keep track where the symbols are defined in the project relative to their modules.
 pub struct SymbolTree {
     /// Storage for the module-tree
-    arena: Arena<Ident>,
-
-    /// Extra data for the elements
-    /// Specify if the symbol denote a module, variable, function, type, etc..
-    #[allow(unused)]
-    symbol_data: HashMap<NodeId, SymbolData>,
+    arena: Arena<SymbolData>,
 
     /// The root module
     root: NodeId,
 }
 
 /// Extra data associated with the symbol
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SymbolData {
-    /// Public or private marker
-    public: bool,
+    /// Identifier of the element
+    ident: Ident,
 
     /// Type of object the symbol denote
     symbol_type: SymbolType,
+}
+
+impl SymbolData {
+    /// Create a new node in the symbol tree
+    #[inline]
+    pub fn new(ident: Ident, symbol_type: SymbolType) -> Self {
+        Self { ident, symbol_type }
+    }
 }
 
 /// Specify what the variable denotes
@@ -58,34 +60,20 @@ impl SymbolTree {
     #[inline]
     pub fn new() -> Self {
         let mut arena = Arena::new();
-        let mut symbol_data = HashMap::new();
 
         // Create the root node
-        let root = arena.new_node(Ident::new(ROOT));
-        symbol_data.insert(root, SymbolData::new(true, SymbolType::Module));
-
-        Self {
-            arena,
-            symbol_data,
-            root,
-        }
+        let root = arena.new_node(SymbolData::new(Ident::new(ROOT), SymbolType::Module));
+        Self { arena, root }
     }
 
     /// Construct an empty symbol tree with the given capacity
     #[inline]
     pub fn with_capacity(capacity: usize) -> Self {
         let mut arena = Arena::with_capacity(capacity);
-        let mut symbol_data = HashMap::with_capacity(capacity);
 
         // Create the root node
-        let root = arena.new_node(Ident::new(ROOT));
-        symbol_data.insert(root, SymbolData::new(true, SymbolType::Module));
-
-        Self {
-            arena,
-            symbol_data,
-            root,
-        }
+        let root = arena.new_node(SymbolData::new(Ident::new(ROOT), SymbolType::Module));
+        Self { arena, root }
     }
 
     /// Find a node given an absolute path
@@ -102,9 +90,27 @@ impl SymbolTree {
         for elem in target.as_slice() {
             current = current
                 .children(&self.arena)
-                .find(|child| self.arena[*child].get() == elem)?;
+                .find(|child| self.arena[*child].get().ident == *elem)?;
         }
         Some(current)
+    }
+
+    /// Get the parent of a given node
+    #[inline]
+    pub fn parent(&self, node: NodeId) -> NodeId {
+        node.parent(&self.arena).unwrap_or(self.root)
+    }
+
+    /// Insert an element in the tree
+    #[inline]
+    pub fn insert(&mut self, parent: NodeId, data: SymbolData) -> NodeId {
+        parent.append_value(data, &mut self.arena)
+    }
+
+    /// Get the data of a given node
+    #[inline]
+    pub fn get(&self, node: NodeId) -> Option<&SymbolData> {
+        self.arena.get(node).map(|n| n.get())
     }
 
     /// Given s starting point and a path to a target symbol, find the corresponding node id
@@ -117,16 +123,5 @@ impl SymbolTree {
             current = node.parent(&self.arena);
         }
         None
-    }
-}
-
-impl SymbolData {
-    /// Create data related to a symbol
-    #[inline]
-    pub const fn new(public: bool, symbol_type: SymbolType) -> Self {
-        Self {
-            public,
-            symbol_type,
-        }
     }
 }
