@@ -17,6 +17,12 @@ impl Path {
         Self(elements.iter().map(|e| Ident::new(e)).collect::<Box<[_]>>())
     }
 
+    /// Is the path empty ?
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     /// Get the path as a slice
     #[inline]
     pub fn as_slice(&self) -> &[Ident] {
