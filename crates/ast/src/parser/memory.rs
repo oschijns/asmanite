@@ -597,9 +597,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parser::Parsers;
     use crate::{
         lexer::{init_test_registers, token::Token},
-        parser::statement::{Statement, StmtInner, parser_statement},
+        parser::statement::{Statement, StmtInner},
     };
     use asmanite_common::{
         literal::{IntLit, Literal},
@@ -629,21 +630,47 @@ mod tests {
         let input =
             Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
 
-        parser_statement()
+        Parsers::new()
+            .statement
             .parse(input)
             .into_result()
             .expect("test source should parse")
     }
 
     #[test]
-    fn parses_in_bank_variable_and_function_block_as_statement() {
-        let statement =
-            parse_statement("in my_bank { var first: u8; fn b() {} var second: u8; fn d() {} }");
+    fn parses_in_bank_variable_block_as_statement() {
+        let statement = parse_statement("in my_bank { var first: u8; var second: u8; }");
 
         assert_eq!(statement.label, None);
         let StmtInner::Bank(bank) = statement.inner else {
             panic!("expected in-bank statement");
         };
+        assert_eq!(bank.ident, "my_bank".into());
+        assert_eq!(bank.variables.len(), 2);
+        assert_eq!(bank.variables[0].ident, "first".into());
+        assert_eq!(bank.variables[1].ident, "second".into());
+    }
+
+    #[test]
+    fn rejects_functions_in_in_bank_statement() {
+        assert!(
+            Parsers::new()
+                .statement
+                .parse(token_input("in my_bank { var first: u8; fn b() {} }"))
+                .has_errors()
+        );
+    }
+
+    #[test]
+    fn parses_in_bank_module_block_with_variables_and_functions() {
+        let parsers = Parsers::new();
+        let bank = parser_in_bank_mod(parsers.var_decl, parsers.function)
+            .parse(token_input(
+                "in my_bank { var first: u8; fn b() {} var second: u8; fn d() {} }",
+            ))
+            .into_result()
+            .expect("in-bank module block should parse");
+
         assert_eq!(bank.ident, "my_bank".into());
         assert_eq!(bank.elements.len(), 4);
         assert!(matches!(
@@ -678,7 +705,8 @@ mod tests {
     fn parses_memory_and_register_parameter_declarations() {
         init_test_registers();
 
-        let named = parser_param_decl()
+        let named = Parsers::new()
+            .param_decl
             .parse(token_input("toto: u8 in zeropage"))
             .into_result()
             .expect("memory parameter should parse");
@@ -693,7 +721,8 @@ mod tests {
         );
         assert_eq!(named.default_value, None);
 
-        let fixed = parser_param_decl()
+        let fixed = Parsers::new()
+            .param_decl
             .parse(token_input("tata: u8 at 0x1000 = 50"))
             .into_result()
             .expect("initialized memory parameter should parse");
@@ -708,7 +737,8 @@ mod tests {
             Some(Expr::Lit(WithSpan::unspanned(Literal::Int(IntLit(50)))).to_box())
         );
 
-        let stack = parser_param_decl()
+        let stack = Parsers::new()
+            .param_decl
             .parse(token_input("stack bb: u8"))
             .into_result()
             .expect("stack parameter should parse");
@@ -722,7 +752,8 @@ mod tests {
             ))
         );
 
-        let comptime_param = parser_param_decl()
+        let comptime_param = Parsers::new()
+            .param_decl
             .parse(token_input("let bb: u8"))
             .into_result()
             .expect("compile-time parameter should parse");
@@ -737,13 +768,15 @@ mod tests {
         );
 
         assert!(
-            parser_param_decl()
+            Parsers::new()
+                .param_decl
                 .parse(token_input("bb: u8"))
                 .into_result()
                 .is_err()
         );
 
-        let register = parser_param_decl()
+        let register = Parsers::new()
+            .param_decl
             .parse(token_input("a = 20"))
             .into_result()
             .expect("initialized register parameter should parse");
@@ -756,7 +789,8 @@ mod tests {
             Some(Expr::Lit(WithSpan::unspanned(Literal::Int(IntLit(20)))).to_box())
         );
 
-        let register = parser_param_decl()
+        let register = Parsers::new()
+            .param_decl
             .parse(token_input("y"))
             .into_result()
             .expect("register parameter should parse");
@@ -766,7 +800,8 @@ mod tests {
         );
 
         assert!(
-            parser_param_decl()
+            Parsers::new()
+                .param_decl
                 .parse(token_input("ordinary_name"))
                 .into_result()
                 .is_err()
@@ -778,7 +813,8 @@ mod tests {
     fn parses_memory_and_register_return_types() {
         init_test_registers();
 
-        let banked = parser_return_type()
+        let banked = Parsers::new()
+            .return_type
             .parse(token_input("u8 in zeropage"))
             .into_result()
             .expect("banked return type should parse");
@@ -791,7 +827,8 @@ mod tests {
             ))
         );
 
-        let fixed = parser_return_type()
+        let fixed = Parsers::new()
+            .return_type
             .parse(token_input("u8 at 0x0100"))
             .into_result()
             .expect("fixed return type should parse");
@@ -806,7 +843,8 @@ mod tests {
 
         for register in ["x", "y"] {
             assert_eq!(
-                parser_return_type()
+                Parsers::new()
+                    .return_type
                     .parse(token_input(register))
                     .into_result()
                     .expect("register return type should parse"),
@@ -815,7 +853,8 @@ mod tests {
         }
 
         assert!(
-            parser_return_type()
+            Parsers::new()
+                .return_type
                 .parse(token_input("ordinary_type"))
                 .into_result()
                 .is_err()

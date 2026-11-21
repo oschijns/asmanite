@@ -765,6 +765,7 @@ where
 mod tests {
     use super::*;
     use crate::lexer::init_test_registers;
+    use crate::parser::Parsers;
     use asmanite_common::literal::*;
     use asmanite_common::span::UNSPANNED;
     use chumsky::input::{Input, Stream};
@@ -778,7 +779,8 @@ mod tests {
         let input =
             Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
 
-        parser_type_used()
+        Parsers::new()
+            .type_used
             .parse(input)
             .into_result()
             .expect("test source should parse")
@@ -792,7 +794,8 @@ mod tests {
         let input =
             Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
 
-        parser_generics(parser_type_used().boxed())
+        Parsers::new()
+            .generics
             .parse(input)
             .into_result()
             .expect("generic parameters should parse")
@@ -806,10 +809,13 @@ mod tests {
         let input =
             Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
 
-        parser_type_alias(parser_type_used().boxed())
-            .parse(input)
-            .into_result()
-            .expect("type alias should parse")
+        {
+            let p = Parsers::new();
+            parser_type_alias(p.type_used, p.generics)
+        }
+        .parse(input)
+        .into_result()
+        .expect("type alias should parse")
     }
 
     #[test]
@@ -1062,7 +1068,7 @@ mod tests {
             |(token, span)| (token, span),
         );
 
-        assert!(parser_type_used().parse(input).into_result().is_err());
+        assert!(Parsers::new().type_used.parse(input).into_result().is_err());
     }
 
     #[test]

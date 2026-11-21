@@ -803,6 +803,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parser::Parsers;
     use crate::{
         lexer::{init_test_registers, token::Token},
         parser::{
@@ -828,7 +829,8 @@ mod tests {
         let input =
             Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
 
-        parser_var_decl()
+        Parsers::new()
+            .var_decl
             .parse(input)
             .into_result()
             .expect("test source should parse")
@@ -842,7 +844,8 @@ mod tests {
         let input =
             Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
 
-        parser_statement()
+        Parsers::new()
+            .statement
             .parse(input)
             .into_result()
             .expect("test source should parse")
@@ -856,10 +859,13 @@ mod tests {
         let input =
             Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
 
-        parser_if_else(parser_block(parser_statement()).boxed())
-            .parse(input)
-            .into_result()
-            .expect("test source should parse")
+        {
+            let p = Parsers::new();
+            parser_if_else(p.expr, p.block)
+        }
+        .parse(input)
+        .into_result()
+        .expect("test source should parse")
     }
 
     fn parse_block(source: &str) -> Vec<Statement> {
@@ -870,7 +876,8 @@ mod tests {
         let input =
             Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
 
-        parser_block(parser_statement())
+        Parsers::new()
+            .block
             .parse(input)
             .into_result()
             .expect("test source should parse")
@@ -887,7 +894,8 @@ mod tests {
         let Statement {
             label: _,
             inner: StmtInner::Loop(loop_stmt),
-        } = parser_statement()
+        } = Parsers::new()
+            .statement
             .parse(input)
             .into_result()
             .expect("test source should parse")
@@ -949,7 +957,7 @@ mod tests {
         let input =
             Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
 
-        assert!(parser_var_decl().parse(input).into_result().is_err());
+        assert!(Parsers::new().var_decl.parse(input).into_result().is_err());
     }
 
     #[test]
@@ -1069,7 +1077,7 @@ else                 { var third:  u8; }
             .map(|(token, span)| (token.expect("test source should lex"), span.into()));
         let input =
             Stream::from_iter(tokens).map((0.."goto;".len()).into(), |(token, span)| (token, span));
-        assert!(parser_statement().parse(input).has_errors());
+        assert!(Parsers::new().statement.parse(input).has_errors());
     }
 
     #[test]
@@ -1132,7 +1140,7 @@ else                 { var third:  u8; }
             .map(|(token, span)| (token.expect("test source should lex"), span.into()));
         let input = Stream::from_iter(tokens)
             .map((0.."defer;".len()).into(), |(token, span)| (token, span));
-        assert!(parser_statement().parse(input).has_errors());
+        assert!(Parsers::new().statement.parse(input).has_errors());
     }
 
     #[test]

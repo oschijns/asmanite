@@ -536,6 +536,7 @@ fn gen_op_bitmasks() -> HashMap<(Associativity, Precedence), u64> {
 #[cfg(test)]
 mod tests {
     use crate::lexer::init_test_registers;
+    use crate::parser::Parsers;
 
     use super::*;
     use asmanite_common::{
@@ -558,7 +559,8 @@ mod tests {
         let input =
             Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
 
-        parser_expr(true)
+        Parsers::new()
+            .expr
             .parse(input)
             .into_result()
             .expect("test source should parse")
@@ -765,7 +767,7 @@ mod tests {
             .map(|(token, span)| (token.expect("test source should lex"), span.into()));
         let input =
             Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
-        assert!(parser_expr(true).parse(input).into_result().is_err());
+        assert!(Parsers::new().expr.parse(input).into_result().is_err());
     }
 
     #[test]

@@ -188,6 +188,7 @@ where
 mod tests {
     use super::*;
     use crate::lexer::init_test_registers;
+    use crate::parser::Parsers;
     use crate::parser::composite_type::{GenericParam, IdentAndType, TypeUsed};
     use crate::parser::memory::{MemStorage, ParamMem, ParamStorage, ReturnMem};
     use crate::parser::statement::StmtInner;
@@ -209,7 +210,8 @@ mod tests {
         let input =
             Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
 
-        parser_function()
+        Parsers::new()
+            .function
             .parse(input)
             .into_result()
             .expect("test source should parse")

@@ -1,12 +1,12 @@
 use asmanite_ast::{
     lexer::token::Token,
     parser::{
-        composite_type::{TypeUsed, parser_composite_type, parser_type_alias, parser_type_used},
-        expression::{Expr, parser_expr},
-        function::parser_function,
-        memory::{ParamType, parser_param_decl, parser_var_decl},
+        Parsers,
+        composite_type::{TypeUsed, parser_type_alias},
+        expression::Expr,
+        memory::ParamType,
         module::parser_use,
-        statement::{LoopType, StmtInner, parser_statement},
+        statement::{LoopType, StmtInner},
     },
 };
 use asmanite_common::span::{Span, Spanned};
@@ -35,7 +35,8 @@ fn assert_span(span: Span, source: &str, start: usize, end: usize) {
 #[test]
 fn expressions_and_operators_have_complete_spans() {
     let source = "1 + 2";
-    let expr = parser_expr(false)
+    let expr = Parsers::new()
+        .expr_const
         .parse(token_input(source))
         .into_result()
         .expect("expression should parse");
@@ -59,7 +60,8 @@ fn expressions_and_operators_have_complete_spans() {
 #[test]
 fn field_and_index_accesses_have_complete_spans() {
     let source = "my_other.sub_struct[ID + 1].field";
-    let expr = parser_expr(false)
+    let expr = Parsers::new()
+        .expr_const
         .parse(token_input(source))
         .into_result()
         .expect("field and index expression should parse");
@@ -93,7 +95,8 @@ fn field_and_index_accesses_have_complete_spans() {
 #[test]
 fn unary_cast_and_group_spans_cover_the_full_expression() {
     let source = "-(1 as u8)";
-    let expr = parser_expr(false)
+    let expr = Parsers::new()
+        .expr_const
         .parse(token_input(source))
         .into_result()
         .expect("expression should parse");
@@ -115,7 +118,8 @@ fn unary_cast_and_group_spans_cover_the_full_expression() {
 #[test]
 fn type_and_declaration_nodes_have_complete_spans() {
     let type_source = "[u8;3]";
-    let ty = parser_type_used()
+    let ty = Parsers::new()
+        .type_used
         .parse(token_input(type_source))
         .into_result()
         .expect("array type should parse");
@@ -125,7 +129,8 @@ fn type_and_declaration_nodes_have_complete_spans() {
     assert_span(array.span, type_source, 0, type_source.len());
 
     let declaration_source = "var value: u8;";
-    let declaration = parser_var_decl()
+    let declaration = Parsers::new()
+        .var_decl
         .parse(token_input(declaration_source))
         .into_result()
         .expect("variable declaration should parse");
@@ -137,7 +142,8 @@ fn type_and_declaration_nodes_have_complete_spans() {
     );
 
     let parameter_source = "value: u8 in ram = 3";
-    let parameter = parser_param_decl()
+    let parameter = Parsers::new()
+        .param_decl
         .parse(token_input(parameter_source))
         .into_result()
         .expect("parameter declaration should parse");
@@ -148,17 +154,21 @@ fn type_and_declaration_nodes_have_complete_spans() {
     assert_span(memory.span, parameter_source, 0, "value: u8 in ram".len());
 
     let composite_source = "struct Pair { left: u8 }";
-    let composite = parser_composite_type(parser_type_used().boxed())
+    let composite = Parsers::new()
+        .composite_type
         .parse(token_input(composite_source))
         .into_result()
         .expect("struct type should parse");
     assert_span(composite.span, composite_source, 0, composite_source.len());
 
     let alias_source = "type Alias = u8;";
-    let alias = parser_type_alias()
-        .parse(token_input(alias_source))
-        .into_result()
-        .expect("type alias should parse");
+    let alias = {
+        let p = Parsers::new();
+        parser_type_alias(p.type_used, p.generics)
+    }
+    .parse(token_input(alias_source))
+    .into_result()
+    .expect("type alias should parse");
     assert_span(alias.span, alias_source, 0, alias_source.len());
 }
 
@@ -172,7 +182,8 @@ fn use_statement_and_function_spans_include_delimiters() {
     assert_span(use_node.span, use_source, 0, use_source.len());
 
     let function_source = "fn f() {}";
-    let function = parser_function()
+    let function = Parsers::new()
+        .function
         .parse(token_input(function_source))
         .into_result()
         .expect("function should parse");
@@ -182,7 +193,8 @@ fn use_statement_and_function_spans_include_delimiters() {
 #[test]
 fn statement_nodes_include_their_terminators() {
     let source = "return;";
-    let statement = parser_statement()
+    let statement = Parsers::new()
+        .statement
         .parse(token_input(source))
         .into_result()
         .expect("return statement should parse");
@@ -197,7 +209,8 @@ fn statement_nodes_include_their_terminators() {
 #[test]
 fn loop_spans_cover_their_headers_and_bodies() {
     for source in ["loop {}", "while true {}", "do {} while true;"] {
-        let statement = parser_statement()
+        let statement = Parsers::new()
+            .statement
             .parse(token_input(source))
             .into_result()
             .expect("loop statement should parse");
@@ -219,7 +232,8 @@ fn loop_spans_cover_their_headers_and_bodies() {
     }
 
     let source = "for index: u8 in ram of 0..3 {}";
-    let statement = parser_statement()
+    let statement = Parsers::new()
+        .statement
         .parse(token_input(source))
         .into_result()
         .expect("for loop should parse");

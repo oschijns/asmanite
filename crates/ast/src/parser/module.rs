@@ -297,6 +297,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::lexer::init_test_registers;
+    use crate::parser::Parsers;
 
     use super::*;
     use chumsky::input::{Input, Stream};
@@ -336,7 +337,11 @@ mod tests {
         let input =
             Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
 
-        parser_module().parse(input).into_result().map_err(|_| ())
+        Parsers::new()
+            .module()
+            .parse(input)
+            .into_result()
+            .map_err(|_| ())
     }
 
     fn parse_module_file(source: &str) -> Result<Module, ()> {
@@ -347,7 +352,8 @@ mod tests {
         let input =
             Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
 
-        parser_module_file_based(Ident::new("example"))
+        Parsers::new()
+            .module_file(Ident::new("example"))
             .parse(input)
             .into_result()
             .map_err(|_| ())
