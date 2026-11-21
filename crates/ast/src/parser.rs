@@ -34,6 +34,13 @@ where
 {
 }
 
+impl<'tok, I, T, P> NitParser<'tok, I, T> for P
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+    P: Parser<'tok, I, T, extra::Err<Rich<'tok, Token>>> + Clone + 'tok,
+{
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{

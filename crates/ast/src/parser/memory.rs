@@ -20,9 +20,9 @@ use chumsky::{
 
 // MARK: AST
 
-/// Block specifying where to store a bunch of variables
+/// Block specifying where to store variables or functions
 #[derive(Debug, Clone, PartialEq)]
-pub struct InBank {
+pub struct InBankMod {
     /// Span of the in-bank block
     pub span: Span,
 
@@ -34,7 +34,7 @@ pub struct InBank {
     pub elements: Box<[BankElement]>,
 }
 
-impl InBank {
+impl InBankMod {
     #[inline]
     pub fn new(span: Span, ident: Ident, elements: Vec<BankElement>) -> Self {
         Self {
@@ -45,9 +45,9 @@ impl InBank {
     }
 }
 
-impl ToBox for InBank {}
+impl ToBox for InBankMod {}
 
-impl Spanned for InBank {
+impl Spanned for InBankMod {
     #[inline]
     fn span(&self) -> Span {
         self.span
@@ -72,6 +72,39 @@ impl Spanned for BankElement {
             Self::Var(var) => var.span,
             Self::Func(func) => func.span,
         }
+    }
+}
+
+/// Block specifying where to store variables
+#[derive(Debug, Clone, PartialEq)]
+pub struct InBankFunc {
+    /// Span of the in-bank block
+    pub span: Span,
+
+    /// Bank identifier
+    pub ident: Ident,
+
+    /// Variables declared in the bank.
+    pub variables: Box<[VarDecl]>,
+}
+
+impl InBankFunc {
+    #[inline]
+    pub fn new(span: Span, ident: Ident, variables: Vec<VarDecl>) -> Self {
+        Self {
+            span,
+            ident,
+            variables: variables.into_boxed_slice(),
+        }
+    }
+}
+
+impl ToBox for InBankFunc {}
+
+impl Spanned for InBankFunc {
+    #[inline]
+    fn span(&self) -> Span {
+        self.span
     }
 }
 
@@ -343,11 +376,11 @@ where
     select! { Token::Ident(IdentOrReg::Reg(register)) => register }
 }
 
-/// Parse a bank block containing variable declarations.
-pub fn parser_in_bank<'tok, 'src: 'tok, I, V, F>(
+/// Parse a bank block containing variable and function declarations.
+pub fn parser_in_bank_mod<'tok, 'src: 'tok, I, V, F>(
     var_decl: V,
     function: F,
-) -> impl Parser<'tok, I, InBank, extra::Err<Rich<'tok, Token>>>
+) -> impl Parser<'tok, I, InBankMod, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
     V: NitParser<'tok, I, VarDecl>,
@@ -368,7 +401,30 @@ where
                 .delimited_by(just(BRACE_OPEN), just(BRACE_CLOSE)),
         )
         .map_with(|(ident, elements), extra| {
-            InBank::new(convert_span(extra.span()), ident, elements)
+            InBankMod::new(convert_span(extra.span()), ident, elements)
+        })
+}
+
+/// Parse a bank block containing variable declarations.
+pub fn parser_in_bank_func<'tok, 'src: 'tok, I, V>(
+    var_decl: V,
+) -> impl Parser<'tok, I, InBankFunc, extra::Err<Rich<'tok, Token>>>
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+    V: NitParser<'tok, I, VarDecl>,
+{
+    just(Token::In)
+        .ignore_then(select! {
+            Token::Ident(IdentOrReg::Ident(ident)) => ident
+        })
+        .then(
+            var_decl
+                .repeated()
+                .collect::<Vec<_>>()
+                .delimited_by(just(BRACE_OPEN), just(BRACE_CLOSE)),
+        )
+        .map_with(|(ident, elements), extra| {
+            InBankFunc::new(convert_span(extra.span()), ident, elements)
         })
 }
 
@@ -427,7 +483,7 @@ where
     let parse_memory = || {
         select! { Token::Ident(IdentOrReg::Ident(ident)) => ident }
             .then_ignore(just(Token::Colon))
-            .then(type_used)
+            .then(type_used.clone())
     };
 
     let memory =

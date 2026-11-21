@@ -3,10 +3,11 @@ use crate::{
     lexer::{atom::*, token::Token},
     parser::{
         NitParser,
+        composite_type::TypeUsed,
         expression::{Expr, parser_expr},
         function::parser_function,
         memory::{
-            InBank, ParamType, VarDecl, parser_in_bank_with_function, parser_param_type,
+            InBankFunc, MemStorage, ParamType, VarDecl, parser_in_bank_func, parser_param_type,
             parser_var_decl,
         },
         module::{UseNode, parser_use},
@@ -51,7 +52,7 @@ pub enum StmtInner {
     Use(Box<WithSpan<UseNode>>),
 
     /// In-bank block for variable declaration
-    Bank(Box<InBank>),
+    Bank(Box<InBankFunc>),
 
     /// Variable declaration
     Var(Box<VarDecl>),
@@ -459,31 +460,52 @@ const BRACE_OPEN: Token = Token::Delimiter(delimiter::BRACE_OPEN);
 const BRACE_CLOSE: Token = Token::Delimiter(delimiter::BRACE_CLOSE);
 
 /// Parse a statement.
-pub fn parser_statement<'tok, 'src: 'tok, I>()
--> impl Parser<'tok, I, Statement, extra::Err<Rich<'tok, Token>>>
+pub fn parser_statement<'tok, 'src: 'tok, I, E, V, T, P, M>(
+    expr_const: E,
+    parse_expr: E,
+    parse_var_decl: V,
+    type_used: T,
+    param_type: P,
+    mem_storage: M,
+) -> impl Parser<'tok, I, Statement, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+    E: NitParser<'tok, I, Expr>,
+    V: NitParser<'tok, I, VarDecl>,
+    T: NitParser<'tok, I, TypeUsed>,
+    P: NitParser<'tok, I, ParamType>,
+    M: NitParser<'tok, I, MemStorage>,
 {
     recursive(|statement| {
         let block = parser_block(statement.clone()).boxed();
-        let var_decl = parser_var_decl()
+        let var_decl = parse_var_decl
+            .clone()
             .map(|v| StmtInner::Var(v.to_box()))
             .boxed();
-        let bank = parser_in_bank_with_function(parser_function_with_statement(statement.clone()))
+        let bank = parser_in_bank_func(parse_var_decl.clone())
             .map(|b| StmtInner::Bank(b.to_box()))
             .boxed();
-        let instr = parser_instr().map(|i| StmtInner::Instr(i.to_box())).boxed();
-        let defer = parser_defer(block.clone()).map(StmtInner::Defer).boxed();
-        let if_else = parser_if_else(block.clone()).map(StmtInner::If).boxed();
-        let loop_stmt = parser_loop(block.clone())
-            .map(|l| StmtInner::Loop(l.to_box()))
+        let instr = parser_instr(parse_expr.clone())
+            .map(|i| StmtInner::Instr(i.to_box()))
             .boxed();
-        let switch = parser_switch(block)
+        let defer = parser_defer(block.clone()).map(StmtInner::Defer).boxed();
+        let if_else = parser_if_else(parse_expr.clone(), block.clone())
+            .map(StmtInner::If)
+            .boxed();
+        let loop_stmt = parser_loop(
+            expr_const.clone(),
+            parse_expr.clone(),
+            block.clone(),
+            param_type,
+        )
+        .map(|l| StmtInner::Loop(l.to_box()))
+        .boxed();
+        let switch = parser_switch(expr_const, parse_expr.clone(), block)
             .map(|s| StmtInner::Switch(s.to_box()))
             .boxed();
         let loop_ctrl = parser_loop_ctrl().map(StmtInner::LoopCtrl).boxed();
         let goto = parser_goto().map(StmtInner::Goto).boxed();
-        let return_stmt = parser_return().map(StmtInner::Return).boxed();
+        let return_stmt = parser_return(parse_expr).map(StmtInner::Return).boxed();
         let use_stmt = parser_use()
             .map(|use_node| StmtInner::Use(Box::new(use_node)))
             .boxed();
