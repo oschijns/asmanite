@@ -5,13 +5,10 @@ use crate::{
         token::{IdentOrReg, Token},
     },
     parser::{
-        NitParser,
-        composite_type::{Generics, TypeUsed, parser_generics},
-        memory::{
-            MemStorage, ParamDecl, ParamStorage, ReturnType, parser_mem_storage, parser_param_decl,
-            parser_return_type,
-        },
-        statement::{Statement, parser_block, parser_statement},
+        SubParser,
+        composite_type::Generics,
+        memory::{MemStorage, ParamDecl, ReturnType},
+        statement::Statement,
     },
 };
 use asmanite_common::{
@@ -125,20 +122,15 @@ const PAREN_OPEN: Token = Token::Delimiter(delimiter::PAREN_OPEN);
 const PAREN_CLOSE: Token = Token::Delimiter(delimiter::PAREN_CLOSE);
 
 /// Parse a function declaration.
-pub fn parser_function<'tok, 'src: 'tok, I, G, B, M, P, R>(
-    generics: G,
-    parse_block: B,
-    mem_storage: M,
-    param_decl: P,
-    return_type: R,
+pub fn parser_function<'tok, 'src: 'tok, I>(
+    parse_generics: SubParser<'tok, I, Generics>,
+    parse_block: SubParser<'tok, I, Vec<Statement>>,
+    parse_mem: SubParser<'tok, I, MemStorage>,
+    parse_param: SubParser<'tok, I, ParamDecl>,
+    parse_return: SubParser<'tok, I, ReturnType>,
 ) -> impl Parser<'tok, I, FuncDecl, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    G: NitParser<'tok, I, Generics>,
-    B: NitParser<'tok, I, Vec<Statement>>,
-    M: NitParser<'tok, I, MemStorage>,
-    P: NitParser<'tok, I, ParamDecl>,
-    R: NitParser<'tok, I, ReturnType>,
 {
     let marker = select! {
         Token::Inline => FuncMarker::Inline,
@@ -150,16 +142,16 @@ where
     let function = select! {
         Token::Ident(IdentOrReg::Ident(ident)) => ident
     }
-    .then(generics.or_not())
-    .then(mem_storage)
+    .then(parse_generics.or_not())
+    .then(parse_mem)
     .then(
-        param_decl
+        parse_param
             .separated_by(just(Token::Comma))
             .allow_trailing()
             .collect::<Vec<_>>()
             .delimited_by(just(PAREN_OPEN), just(PAREN_CLOSE)),
     )
-    .then(just(Token::Arrow).ignore_then(return_type).or_not())
+    .then(just(Token::Arrow).ignore_then(parse_return).or_not())
     .then(parse_block)
     .map_with(
         |(((((ident, generics), storage), parameters), return_type), block), extra| {

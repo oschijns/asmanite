@@ -4,7 +4,7 @@ use crate::{
         atom::*,
         token::{IdentOrReg, Token},
     },
-    parser::{NitParser, expression::Expr},
+    parser::{SubParser, expression::Expr},
 };
 use asmanite_common::{
     ToBox,
@@ -458,62 +458,56 @@ const BRACE_OPEN: Token = Token::Delimiter(delimiter::BRACE_OPEN);
 const BRACE_CLOSE: Token = Token::Delimiter(delimiter::BRACE_CLOSE);
 
 /// Parse a complex type declaration.
-pub fn parser_type_decl<'tok, 'src: 'tok, I, T, G, C, F>(
-    type_used: T,
-    generics: G,
-    parse_comp: C,
-    parse_enum: F,
+pub fn parser_type_decl<'tok, 'src: 'tok, I>(
+    parse_type: SubParser<'tok, I, TypeUsed>,
+    parse_gen: SubParser<'tok, I, Generics>,
+    parse_comp: SubParser<'tok, I, CompositeType>,
+    parse_enum: SubParser<'tok, I, EnumType>,
 ) -> impl Parser<'tok, I, TypeDecl, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    T: NitParser<'tok, I, TypeUsed>,
-    G: NitParser<'tok, I, Generics>,
-    C: NitParser<'tok, I, CompositeType>,
-    F: NitParser<'tok, I, EnumType>,
 {
     let composite = parse_comp
         .map(|comp| TypeDecl::Composite(comp.to_box()))
         .boxed();
     let enum_type = parse_enum.map(|e| TypeDecl::Enum(e.to_box())).boxed();
-    let type_alias = parser_type_alias(type_used, generics)
+    let type_alias = parser_type_alias(parse_type, parse_gen)
         .map(|alias| TypeDecl::Alias(alias.to_box()))
         .boxed();
     composite.or(enum_type).or(type_alias)
 }
 
 /// Parse a type usage.
-pub fn parser_type_used<'tok, 'src: 'tok, I, E, G, P, C, F>(
-    expr_const: E,
-    generics: G,
-    parse_path: P,
-    parse_comp: C,
-    parse_enum: F,
+pub fn parser_type_used<'tok, 'src: 'tok, I>(
+    parse_expr_const: SubParser<'tok, I, Expr>,
+    parse_path: SubParser<'tok, I, Path>,
+    parse_comp: SubParser<'tok, I, CompositeType>,
+    parse_enum: SubParser<'tok, I, EnumType>,
 ) -> impl Parser<'tok, I, TypeUsed, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    E: NitParser<'tok, I, Expr>,
-    G: NitParser<'tok, I, Generics>,
-    P: NitParser<'tok, I, Path>,
-    C: NitParser<'tok, I, CompositeType>,
-    F: NitParser<'tok, I, EnumType>,
 {
     recursive(|used| {
+        let parse_type = used.boxed();
+
         let primitive =
             select! { Token::Primitive(primitive) => primitive }.map_with(|prim, extra| {
                 TypeUsed::Prim(WithSpan::new(convert_span(extra.span()), prim))
             });
-        let array = parser_array_type(expr_const.clone(), used.clone())
+        let array = parser_array_type(parse_expr_const.clone(), parse_type.clone())
             .map(|array| TypeUsed::Array(array.to_box()))
             .boxed();
-        let tuple = parser_tuple_type(used.clone()).map(TypeUsed::Tuple).boxed();
-        let complex = parser_named_type(expr_const.clone(), used.clone(), parse_path)
+        let tuple = parser_tuple_type(parse_type.clone())
+            .map(TypeUsed::Tuple)
+            .boxed();
+        let complex = parser_named_type(parse_expr_const.clone(), parse_type.clone(), parse_path)
             .map(|complex| TypeUsed::Named(complex.to_box()))
             .boxed();
         let composite = parse_comp
             .map(|comp| TypeUsed::Composite(comp.to_box()))
             .boxed();
         let enumeration = parse_enum.map(|e| TypeUsed::Enum(e.to_box())).boxed();
-        let function = parser_function_type(used.clone())
+        let function = parser_function_type(parse_type.clone())
             .map(|func| TypeUsed::Function(func.to_box()))
             .boxed();
 
@@ -529,20 +523,18 @@ where
 }
 
 /// Parse a struct/union declaration or anonymous struct/union type.
-pub fn parser_composite_type<'tok, 'src: 'tok, I, T, G>(
-    type_used: T,
-    generics: G,
+pub fn parser_composite_type<'tok, 'src: 'tok, I>(
+    parse_type: SubParser<'tok, I, TypeUsed>,
+    parse_gen: SubParser<'tok, I, Generics>,
 ) -> impl Parser<'tok, I, CompositeType, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    T: NitParser<'tok, I, TypeUsed>,
-    G: NitParser<'tok, I, Generics>,
 {
     let field = select! {
         Token::Ident(IdentOrReg::Ident(ident)) => ident,
     }
     .then_ignore(just(Token::Colon))
-    .then(type_used.clone())
+    .then(parse_type.clone())
     .map(|(ident, type_used)| IdentAndType::new(ident, type_used));
 
     select! {
@@ -554,7 +546,7 @@ where
         }
         .or_not(),
     )
-    .then(generics.clone().or_not())
+    .then(parse_gen.clone().or_not())
     .then(
         field
             .separated_by(just(Token::Comma))
@@ -576,17 +568,20 @@ where
 }
 
 /// Parse an enum declaration or anonymous enum type.
-pub fn parser_enum_type<'tok, 'src: 'tok, I, E>(
-    expr_const: E,
+pub fn parser_enum_type<'tok, 'src: 'tok, I>(
+    parse_expr_const: SubParser<'tok, I, Expr>,
 ) -> impl Parser<'tok, I, EnumType, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    E: NitParser<'tok, I, Expr>,
 {
     let variant = select! {
         Token::Ident(IdentOrReg::Ident(ident)) => ident,
     }
-    .then(just(Token::Assign(ASSIGN)).ignore_then(expr_const).or_not());
+    .then(
+        just(Token::Assign(ASSIGN))
+            .ignore_then(parse_expr_const)
+            .or_not(),
+    );
     let variants = variant
         .separated_by(just(Token::Comma))
         .allow_trailing()
@@ -622,22 +617,20 @@ where
 }
 
 /// Parse a type alias declaration such as `type Alias<T> = path::Type<T>;`.
-pub fn parser_type_alias<'tok, 'src: 'tok, I, T, G>(
-    type_used: T,
-    generics: G,
+pub fn parser_type_alias<'tok, 'src: 'tok, I>(
+    parse_type: SubParser<'tok, I, TypeUsed>,
+    parse_gen: SubParser<'tok, I, Generics>,
 ) -> impl Parser<'tok, I, TypeAlias, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    T: NitParser<'tok, I, TypeUsed>,
-    G: NitParser<'tok, I, Generics>,
 {
     just(Token::TypeDef(TypeDef::Alias))
         .ignore_then(select! {
             Token::Ident(IdentOrReg::Ident(ident)) => ident,
         })
-        .then(generics.clone().or_not())
+        .then(parse_gen.clone().or_not())
         .then_ignore(just(Token::Assign(ASSIGN)))
-        .then(type_used.clone())
+        .then(parse_type.clone())
         .then_ignore(just(Token::Semicolon))
         .map_with(|((name, generics), type_used), extra| {
             let mut alias = TypeAlias::new(convert_span(extra.span()), name, type_used);
@@ -649,18 +642,16 @@ where
 }
 
 /// Parse an array type such as `[u8; 3]`.
-pub fn parser_array_type<'tok, 'src: 'tok, I, E, T>(
-    expr_const: E,
-    type_used: T,
+pub fn parser_array_type<'tok, 'src: 'tok, I>(
+    parse_expr_const: SubParser<'tok, I, Expr>,
+    parse_type: SubParser<'tok, I, TypeUsed>,
 ) -> impl Parser<'tok, I, ArrayType, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    E: NitParser<'tok, I, Expr>,
-    T: NitParser<'tok, I, TypeUsed>,
 {
-    type_used
+    parse_type
         .then_ignore(just(Token::Semicolon))
-        .then(expr_const)
+        .then(parse_expr_const)
         .delimited_by(just(BRACKET_OPEN), just(BRACKET_CLOSE))
         .map_with(|(cell_type, size), extra| {
             ArrayType::new(convert_span(extra.span()), cell_type, size)
@@ -668,14 +659,13 @@ where
 }
 
 /// Parse a tuple type such as `(u8, u16, i32)`.
-pub fn parser_tuple_type<'tok, 'src: 'tok, I, T>(
-    type_used: T,
+pub fn parser_tuple_type<'tok, 'src: 'tok, I>(
+    parse_type: SubParser<'tok, I, TypeUsed>,
 ) -> impl Parser<'tok, I, TupleType, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    T: NitParser<'tok, I, TypeUsed>,
 {
-    type_used
+    parse_type
         .separated_by(just(Token::Comma))
         .at_least(1)
         .allow_trailing()
@@ -685,20 +675,17 @@ where
 }
 
 /// Parse a named type such as `path::to::MyType<i16, 3>`.
-pub fn parser_named_type<'tok, 'src: 'tok, I, E, T, P>(
-    expr_const: E,
-    type_used: T,
-    path: P,
+pub fn parser_named_type<'tok, 'src: 'tok, I>(
+    parse_expr_const: SubParser<'tok, I, Expr>,
+    parse_type: SubParser<'tok, I, TypeUsed>,
+    parse_path: SubParser<'tok, I, Path>,
 ) -> impl Parser<'tok, I, NamedType, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    E: NitParser<'tok, I, Expr>,
-    T: NitParser<'tok, I, TypeUsed>,
-    P: NitParser<'tok, I, Path>,
 {
-    let generic = type_used
+    let generic = parse_type
         .map(GenericUsed::Type)
-        .or(expr_const.map(GenericUsed::Const));
+        .or(parse_expr_const.map(GenericUsed::Const));
     let generics = generic
         .separated_by(just(Token::Comma))
         .at_least(1)
@@ -706,7 +693,8 @@ where
         .collect::<Vec<_>>()
         .delimited_by(just(GEN_OPEN), just(GEN_CLOSE));
 
-    path.then(generics.or_not())
+    parse_path
+        .then(generics.or_not())
         .map_with(|(ident, generics), extra| {
             let mut complex = NamedType::new(convert_span(extra.span()), ident);
             if let Some(generics) = generics {
@@ -717,20 +705,19 @@ where
 }
 
 /// Parse a function type such as `fn(u8, i16) -> i8`.
-pub fn parser_function_type<'tok, 'src: 'tok, I, T>(
-    type_used: T,
+pub fn parser_function_type<'tok, 'src: 'tok, I>(
+    parse_type: SubParser<'tok, I, TypeUsed>,
 ) -> impl Parser<'tok, I, FunctionType, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    T: NitParser<'tok, I, TypeUsed>,
 {
-    let parameters = type_used
+    let parameters = parse_type
         .clone()
         .separated_by(just(Token::Comma))
         .allow_trailing()
         .collect::<Vec<_>>()
         .delimited_by(just(PAREN_OPEN), just(PAREN_CLOSE));
-    let return_type = just(Token::Arrow).ignore_then(type_used).or_not();
+    let return_type = just(Token::Arrow).ignore_then(parse_type).or_not();
 
     just(Token::Func)
         .ignore_then(parameters)
@@ -745,12 +732,11 @@ where
 }
 
 /// Parse a list of declared generic parameters, such as `<T, const SIZE: u8>`.
-pub fn parser_generics<'tok, 'src: 'tok, I, T>(
-    type_used: T,
+pub fn parser_generics<'tok, 'src: 'tok, I>(
+    parse_type: SubParser<'tok, I, TypeUsed>,
 ) -> impl Parser<'tok, I, Generics, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    T: NitParser<'tok, I, TypeUsed>,
 {
     let type_param = select! {
         Token::Ident(IdentOrReg::Ident(ident)) => GenericParam::Type(ident),
@@ -760,7 +746,7 @@ where
             Token::Ident(IdentOrReg::Ident(ident)) => ident,
         })
         .then_ignore(just(Token::Colon))
-        .then(type_used)
+        .then(parse_type)
         .map(|(ident, type_used)| GenericParam::Const(IdentAndType::new(ident, type_used)));
 
     type_param

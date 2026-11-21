@@ -4,7 +4,7 @@ use crate::{
         atom::*,
         token::{IdentOrReg, Token},
     },
-    parser::{NitParser, memory::parser_register},
+    parser::{SubParser, memory::parser_register},
 };
 use asmanite_common::{
     ToBox,
@@ -309,13 +309,12 @@ const BRACKET_CLOSE: Token = Token::Delimiter(delimiter::BRACKET_CLOSE);
 /// Read tokens to produce an expression.
 /// Provide a flag to indicate if assignments are allowed in the expression.
 /// Assignments can introduce syntax ambiguities in some contextes.
-pub fn parser_expr<'tok, 'src: 'tok, I, P>(
-    parse_path: P,
+pub fn parser_expr<'tok, 'src: 'tok, I>(
+    parse_path: SubParser<'tok, I, Path>,
     allow_assign: bool,
 ) -> impl Parser<'tok, I, Expr, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    P: NitParser<'tok, I, Path>,
 {
     recursive(|expr| {
         let literal = select! { Token::Lit(literal) => literal }.map_with(|literal, extra| {
@@ -326,7 +325,7 @@ where
         });
 
         // sub-parser for function call arguments
-        let arguments = parser_expr_seq(expr.clone(), DelimType::Paren).boxed();
+        let arguments = parser_expr_seq(expr.clone().boxed(), DelimType::Paren).boxed();
 
         // path to a variable or a function
         let path = parse_path
@@ -342,6 +341,7 @@ where
 
         let grouped = expr
             .clone()
+            .boxed()
             .delimited_by(just(PAREN_OPEN), just(PAREN_CLOSE))
             .map_with(|inner, extra| {
                 Expr::Group(Box::new(WithSpan::new(convert_span(extra.span()), inner)))
@@ -369,7 +369,7 @@ where
             operators.push(parse_binary_op(assoc, prec, mask).boxed());
         }
         operators.push(parse_field_access().boxed());
-        operators.push(parser_index_op(expr.clone()).boxed());
+        operators.push(parser_index_op(expr.boxed()).boxed());
         if allow_assign {
             operators.push(parse_assign_op().boxed());
         }
@@ -380,15 +380,15 @@ where
 }
 
 /// Parse an index operation
-pub fn parser_index_op<'tok, 'src: 'tok, I, E>(
-    expr: E,
+/// Note: expression may contain assignments
+pub fn parser_index_op<'tok, 'src: 'tok, I>(
+    parse_expr: SubParser<'tok, I, Expr>,
 ) -> impl PrattOperator<'tok, I, Expr, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    E: NitParser<'tok, I, Expr>,
 {
     let index = just(BRACKET_OPEN)
-        .ignore_then(expr)
+        .ignore_then(parse_expr)
         .then_ignore(just(BRACKET_CLOSE));
 
     pratt::postfix(PREC_INDEX, index, |expr, index, extra| {
@@ -426,20 +426,21 @@ where
 }
 
 /// Parse a sequence of expressions separated by commas
-pub fn parser_expr_seq<'tok, 'src: 'tok, I, E>(
-    expr: E,
+/// Note: expression may contain assignments
+pub fn parser_expr_seq<'tok, 'src: 'tok, I>(
+    parse_expr: SubParser<'tok, I, Expr>,
     delim_type: DelimType,
 ) -> impl Parser<'tok, I, Vec<Expr>, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    E: NitParser<'tok, I, Expr>,
 {
     // Generate the two expected delimiters
     let open = Token::Delimiter(Delimiter::open(delim_type));
     let close = Token::Delimiter(Delimiter::close(delim_type));
 
     // Aggregate expressions delimited by commas
-    expr.separated_by(just(Token::Comma))
+    parse_expr
+        .separated_by(just(Token::Comma))
         .allow_trailing()
         .collect::<Vec<_>>()
         .delimited_by(just(open), just(close))

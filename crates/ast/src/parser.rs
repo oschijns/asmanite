@@ -18,7 +18,7 @@ pub mod function;
 
 use crate::lexer::token::Token;
 use asmanite_common::span::Span;
-use chumsky::{Parser, error::Rich, extra, input::ValueInput, span::SimpleSpan};
+use chumsky::{Boxed, error::Rich, extra, span::SimpleSpan};
 
 /// Convert a chumsky span into our own span type
 #[inline]
@@ -26,27 +26,12 @@ fn convert_span(span: SimpleSpan) -> Span {
     Span::new(span.start, span.end)
 }
 
-/// Define an alias for parser trait
-pub trait NitParser<'tok, I, T>:
-    Parser<'tok, I, T, extra::Err<Rich<'tok, Token>>> + Clone + 'tok
-where
-    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-{
-}
-
-impl<'tok, I, T, P> NitParser<'tok, I, T> for P
-where
-    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    P: Parser<'tok, I, T, extra::Err<Rich<'tok, Token>>> + Clone + 'tok,
-{
-}
+/// Alias for boxed sub-parser
+pub type SubParser<'tok, I, T> = Boxed<'tok, 'tok, I, T, extra::Err<Rich<'tok, Token>>>;
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        lexer::{init_test_registers, token::Token},
-        parser::module::parser_module_file_named,
-    };
+    use crate::lexer::{init_test_registers, token::Token};
     use asmanite_common::ident::Ident;
     use chumsky::{
         Parser,

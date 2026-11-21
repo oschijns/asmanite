@@ -7,12 +7,7 @@ use crate::{
             Token::{self},
         },
     },
-    parser::{
-        NitParser,
-        composite_type::{TypeDecl, parser_type_decl},
-        function::{FuncDecl, parser_function},
-        memory::{VarDecl, parser_var_decl},
-    },
+    parser::{SubParser, composite_type::TypeDecl, function::FuncDecl, memory::VarDecl},
 };
 use asmanite_common::{
     ToBox,
@@ -157,19 +152,18 @@ const BRACE_CLOSE: Token = Token::Delimiter(delimiter::BRACE_CLOSE);
 /// Parser for an inline module block.
 ///
 /// This parser consumes `mod name { ... }` and can be embedded in a module.
-pub fn parser_module<'tok, 'src: 'tok, I, E>(
-    module_element: E,
+pub fn parser_module<'tok, 'src: 'tok, I>(
+    parse_mod_elem: SubParser<'tok, I, ModElement>,
 ) -> impl Parser<'tok, I, Module, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    E: NitParser<'tok, I, ModElement>,
 {
     just(Token::Mod)
         .ignore_then(select! {
             Token::Ident(IdentOrReg::Ident(ident)) => ident,
         })
         .then(
-            module_element
+            parse_mod_elem
                 .repeated()
                 .collect::<Vec<_>>()
                 .delimited_by(just(BRACE_OPEN), just(BRACE_CLOSE))
@@ -184,15 +178,14 @@ where
 ///
 /// Unlike [`parser_module`], this parser does not consume `mod name { ... }`.
 /// It consumes all module elements and requires the end of the input.
-pub fn parser_module_file_named<'tok, 'src: 'tok, I, E>(
+pub fn parser_module_file_based<'tok, 'src: 'tok, I>(
     ident: Ident,
-    module_element: E,
+    parse_mod_elem: SubParser<'tok, I, ModElement>,
 ) -> impl Parser<'tok, I, Module, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    E: NitParser<'tok, I, ModElement>,
 {
-    module_element
+    parse_mod_elem
         .repeated()
         .collect::<Vec<_>>()
         .then_ignore(end())
@@ -202,16 +195,13 @@ where
 }
 
 /// Parser for an element of a module
-pub fn parser_module_element<'tok, 'src: 'tok, I, T, V, F>(
-    type_decl: T,
-    var_decl: V,
-    function: F,
+pub fn parser_module_element<'tok, 'src: 'tok, I>(
+    parse_type: SubParser<'tok, I, TypeDecl>,
+    parse_var: SubParser<'tok, I, VarDecl>,
+    parse_func: SubParser<'tok, I, FuncDecl>,
 ) -> impl Parser<'tok, I, ModElement, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    T: NitParser<'tok, I, TypeDecl>,
-    V: NitParser<'tok, I, VarDecl>,
-    F: NitParser<'tok, I, FuncDecl>,
 {
     recursive(|element| {
         let inline_module = just(Token::Mod)
@@ -232,9 +222,11 @@ where
 
         inline_module
             .or(parser_use().map(|u| ModElement::Use(u.to_box())).boxed())
-            .or(type_decl.map(|t| ModElement::Type(t)).boxed())
-            .or(var_decl.map(|var| ModElement::Var(var.to_box())).boxed())
-            .or(function.map(|func| ModElement::Func(func.to_box())).boxed())
+            .or(parse_type.map(ModElement::Type).boxed())
+            .or(parse_var.map(|var| ModElement::Var(var.to_box())).boxed())
+            .or(parse_func
+                .map(|func| ModElement::Func(func.to_box()))
+                .boxed())
     })
 }
 
@@ -355,7 +347,7 @@ mod tests {
         let input =
             Stream::from_iter(tokens).map((0..source.len()).into(), |(token, span)| (token, span));
 
-        parser_module_file_named(Ident::new("example"))
+        parser_module_file_based(Ident::new("example"))
             .parse(input)
             .into_result()
             .map_err(|_| ())
