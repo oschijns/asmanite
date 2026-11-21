@@ -4,11 +4,7 @@ use crate::{
         atom::*,
         token::{IdentOrReg, Token},
     },
-    parser::{
-        composite_type::{TypeUsed, parser_type_used},
-        expression::{Expr, parser_expr},
-        function::{FuncDecl, parser_function},
-    },
+    parser::{NitParser, composite_type::TypeUsed, expression::Expr, function::FuncDecl},
 };
 use asmanite_common::{
     ToBox,
@@ -348,23 +344,16 @@ where
 }
 
 /// Parse a bank block containing variable declarations.
-#[inline]
-pub fn parser_in_bank<'tok, 'src: 'tok, I>()
--> impl Parser<'tok, I, InBank, extra::Err<Rich<'tok, Token>>>
-where
-    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-{
-    parser_in_bank_with_function(parser_function())
-}
-
-pub(crate) fn parser_in_bank_with_function<'tok, 'src: 'tok, I, F>(
+pub fn parser_in_bank<'tok, 'src: 'tok, I, V, F>(
+    var_decl: V,
     function: F,
 ) -> impl Parser<'tok, I, InBank, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    F: Parser<'tok, I, FuncDecl, extra::Err<Rich<'tok, Token>>>,
+    V: NitParser<'tok, I, VarDecl>,
+    F: NitParser<'tok, I, FuncDecl>,
 {
-    let var_decl = parser_var_decl().map(|v| BankElement::Var(v.to_box()));
+    let var_decl = var_decl.map(|v| BankElement::Var(v.to_box()));
     let func_decl = function.map(|f| BankElement::Func(f.to_box()));
     let element = var_decl.or(func_decl);
 
@@ -384,14 +373,17 @@ where
 }
 
 /// Parse a variable, static, or constant declaration.
-pub fn parser_var_decl<'tok, 'src: 'tok, I>()
--> impl Parser<'tok, I, VarDecl, extra::Err<Rich<'tok, Token>>>
+pub fn parser_var_decl<'tok, 'src: 'tok, I, E, T, M>(
+    parse_expr: E,
+    type_used: T,
+    mem_storage: M,
+) -> impl Parser<'tok, I, VarDecl, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+    E: NitParser<'tok, I, Expr>,
+    T: NitParser<'tok, I, TypeUsed>,
+    M: NitParser<'tok, I, MemStorage>,
 {
-    // Parse a type usage
-    let type_used = parser_type_used();
-
     // Type of variable declared (var, static, const)
     // followed by its identifier and by its type.
     // Optionnaly, we may specify where the variable
@@ -402,12 +394,8 @@ where
         })
         .then_ignore(just(Token::Colon))
         .then(type_used)
-        .then(parser_mem_storage())
-        .then(
-            just(Token::Assign(ASSIGN))
-                .ignore_then(parser_expr(true))
-                .or_not(),
-        )
+        .then(mem_storage)
+        .then(just(Token::Assign(ASSIGN)).ignore_then(parse_expr).or_not())
         .then_ignore(just(Token::Semicolon))
         .map_with(
             |((((decl_type, ident), var_type), storage), assign_expr), extra| {
@@ -427,27 +415,32 @@ where
 }
 
 /// Parse a parameter's type, either a named memory parameter or a register.
-pub fn parser_param_type<'tok, 'src: 'tok, I>()
--> impl Parser<'tok, I, ParamType, extra::Err<Rich<'tok, Token>>>
+pub fn parser_param_type<'tok, 'src: 'tok, I, T, S>(
+    type_used: T,
+    param_storage: S,
+) -> impl Parser<'tok, I, ParamType, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+    T: NitParser<'tok, I, TypeUsed>,
+    S: NitParser<'tok, I, ParamStorage>,
 {
     let parse_memory = || {
         select! { Token::Ident(IdentOrReg::Ident(ident)) => ident }
             .then_ignore(just(Token::Colon))
-            .then(parser_type_used())
+            .then(type_used)
     };
 
-    let memory = parse_memory().then(parser_param_storage()).map_with(
-        |((ident, type_used), storage), extra| {
-            ParamType::Memory(ParamMem::new(
-                convert_span(extra.span()),
-                ident,
-                type_used,
-                storage,
-            ))
-        },
-    );
+    let memory =
+        parse_memory()
+            .then(param_storage)
+            .map_with(|((ident, type_used), storage), extra| {
+                ParamType::Memory(ParamMem::new(
+                    convert_span(extra.span()),
+                    ident,
+                    type_used,
+                    storage,
+                ))
+            });
     let stack_memory = just(Token::VarDecl(VarType::Stack))
         .ignore_then(parse_memory())
         .map_with(|(ident, type_used), extra| {
@@ -476,17 +469,17 @@ where
 }
 
 /// Parse a parameter declaration, optionally initialized with a default value.
-pub fn parser_param_decl<'tok, 'src: 'tok, I>()
--> impl Parser<'tok, I, ParamDecl, extra::Err<Rich<'tok, Token>>>
+pub fn parser_param_decl<'tok, 'src: 'tok, I, E, P>(
+    parse_expr: E,
+    param_type: P,
+) -> impl Parser<'tok, I, ParamDecl, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+    E: NitParser<'tok, I, Expr>,
+    P: NitParser<'tok, I, ParamType>,
 {
-    parser_param_type()
-        .then(
-            just(Token::Assign(ASSIGN))
-                .ignore_then(parser_expr(true))
-                .or_not(),
-        )
+    param_type
+        .then(just(Token::Assign(ASSIGN)).ignore_then(parse_expr).or_not())
         .map_with(|(param_type, default_value), extra| {
             let mut declaration = ParamDecl::new(convert_span(extra.span()), param_type);
             declaration.default_value = default_value.map(Box::new);
@@ -495,21 +488,24 @@ where
 }
 
 /// Parse a return type, either a memory location or a register.
-pub fn parser_return_type<'tok, 'src: 'tok, I>()
--> impl Parser<'tok, I, ReturnType, extra::Err<Rich<'tok, Token>>>
+pub fn parser_return_type<'tok, 'src: 'tok, I, T, S>(
+    type_used: T,
+    param_storage: S,
+) -> impl Parser<'tok, I, ReturnType, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+    T: NitParser<'tok, I, TypeUsed>,
+    S: NitParser<'tok, I, ParamStorage>,
 {
-    let memory =
-        parser_type_used()
-            .then(parser_param_storage())
-            .map_with(|(type_used, storage), extra| {
-                ReturnType::Memory(ReturnMem::new(
-                    convert_span(extra.span()),
-                    type_used,
-                    storage,
-                ))
-            });
+    let memory = type_used
+        .then(param_storage)
+        .map_with(|(type_used, storage), extra| {
+            ReturnType::Memory(ReturnMem::new(
+                convert_span(extra.span()),
+                type_used,
+                storage,
+            ))
+        });
 
     parser_register()
         .map_with(|register, extra| {
@@ -519,34 +515,38 @@ where
 }
 
 /// Parse an optional memory placement clause.
-pub(crate) fn parser_mem_storage<'tok, 'src: 'tok, I>()
--> impl Parser<'tok, I, MemStorage, extra::Err<Rich<'tok, Token>>>
+pub(crate) fn parser_mem_storage<'tok, 'src: 'tok, I, E>(
+    expr_const: E,
+) -> impl Parser<'tok, I, MemStorage, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+    E: NitParser<'tok, I, Expr>,
 {
     just(Token::In)
         .ignore_then(select! {
             Token::Ident(IdentOrReg::Ident(ident)) => MemStorage::In(ident)
         })
         .or(just(Token::At)
-            .ignore_then(parser_expr(false))
+            .ignore_then(expr_const)
             .map(MemStorage::new_at))
         .or_not()
         .map(Option::unwrap_or_default)
 }
 
 /// Parse a required memory placement clause for a parameter or return value.
-pub(crate) fn parser_param_storage<'tok, 'src: 'tok, I>()
--> impl Parser<'tok, I, ParamStorage, extra::Err<Rich<'tok, Token>>>
+pub(crate) fn parser_param_storage<'tok, 'src: 'tok, I, E>(
+    expr_const: E,
+) -> impl Parser<'tok, I, ParamStorage, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+    E: NitParser<'tok, I, Expr>,
 {
     just(Token::In)
         .ignore_then(select! {
             Token::Ident(IdentOrReg::Ident(ident)) => ParamStorage::In(ident)
         })
         .or(just(Token::At)
-            .ignore_then(parser_expr(false))
+            .ignore_then(expr_const)
             .map(ParamStorage::new_at))
 }
 

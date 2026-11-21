@@ -2,8 +2,9 @@ use super::convert_span;
 use crate::{
     lexer::{atom::*, token::Token},
     parser::{
+        NitParser,
         expression::{Expr, parser_expr},
-        function::parser_function_with_statement,
+        function::parser_function,
         memory::{
             InBank, ParamType, VarDecl, parser_in_bank_with_function, parser_param_type,
             parser_var_decl,
@@ -542,13 +543,15 @@ where
 }
 
 /// Parse a return statement with an optional value expression.
-pub fn parser_return<'tok, 'src: 'tok, I>()
--> impl Parser<'tok, I, Return, extra::Err<Rich<'tok, Token>>>
+pub fn parser_return<'tok, 'src: 'tok, I, E>(
+    parse_expr: E,
+) -> impl Parser<'tok, I, Return, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+    E: NitParser<'tok, I, Expr>,
 {
     just(Token::Return)
-        .ignore_then(parser_expr(true).or_not())
+        .ignore_then(parse_expr.or_not())
         .then_ignore(just(Token::Semicolon))
         .map_with(|value, extra| match value {
             Some(value) => Return::with_value(convert_span(extra.span()), value),
@@ -557,12 +560,14 @@ where
 }
 
 /// Parse a simple expression instruction terminated by a semicolon.
-pub fn parser_instr<'tok, 'src: 'tok, I>()
--> impl Parser<'tok, I, Instr, extra::Err<Rich<'tok, Token>>>
+pub fn parser_instr<'tok, 'src: 'tok, I, E>(
+    parse_expr: E,
+) -> impl Parser<'tok, I, Instr, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+    E: NitParser<'tok, I, Expr>,
 {
-    parser_expr(true)
+    parse_expr
         .then_ignore(just(Token::Semicolon))
         .map_with(|expr, extra| Instr {
             span: convert_span(extra.span()),
@@ -576,7 +581,7 @@ pub fn parser_defer<'tok, 'src: 'tok, I, B>(
 ) -> impl Parser<'tok, I, Defer, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    B: Parser<'tok, I, Vec<Statement>, extra::Err<Rich<'tok, Token>>> + 'tok,
+    B: NitParser<'tok, I, Vec<Statement>>,
 {
     just(Token::Defer)
         .ignore_then(block)
@@ -587,15 +592,17 @@ where
 }
 
 /// Parse an if-else chain, including nested statements in each block.
-pub fn parser_if_else<'tok, 'src: 'tok, I, B>(
+pub fn parser_if_else<'tok, 'src: 'tok, I, E, B>(
+    parse_expr: E,
     block: B,
 ) -> impl Parser<'tok, I, IfElse, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    B: Parser<'tok, I, Vec<Statement>, extra::Err<Rich<'tok, Token>>> + Clone + 'tok,
+    E: NitParser<'tok, I, Expr>,
+    B: NitParser<'tok, I, Vec<Statement>>,
 {
     // Condition is a non constant expression
-    let condition = parser_expr(true).boxed();
+    let condition = parse_expr.boxed();
 
     // if <condition> { ... }
     let if_branch = just(Token::If)
@@ -632,14 +639,17 @@ where
 }
 
 /// Parse a switch statement with braced case bodies.
-pub fn parser_switch<'tok, 'src: 'tok, I, B>(
+pub fn parser_switch<'tok, 'src: 'tok, I, E, B>(
+    expr_const: E,
+    parse_expr: E,
     block: B,
 ) -> impl Parser<'tok, I, Switch, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    B: Parser<'tok, I, Vec<Statement>, extra::Err<Rich<'tok, Token>>> + Clone + 'tok,
+    E: NitParser<'tok, I, Expr>,
+    B: NitParser<'tok, I, Vec<Statement>>,
 {
-    let case = parser_expr(false)
+    let case = expr_const
         .then_ignore(just(Token::FatArrow))
         .then(block.clone())
         .map(|(value, block)| Branching::new(value, block));
@@ -648,7 +658,7 @@ where
         .ignore_then(block);
 
     just(Token::Switch)
-        .ignore_then(parser_expr(true))
+        .ignore_then(parse_expr)
         .then(
             case.repeated()
                 .at_least(1)
@@ -665,12 +675,17 @@ where
 }
 
 /// Parse infinite, while, do-while, and range-based for loops.
-pub fn parser_loop<'tok, 'src: 'tok, I, B>(
+pub fn parser_loop<'tok, 'src: 'tok, I, E, B, P>(
+    expr_const: E,
+    parse_expr: E,
     block: B,
+    param_type: P,
 ) -> impl Parser<'tok, I, Loop, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    B: Parser<'tok, I, Vec<Statement>, extra::Err<Rich<'tok, Token>>> + Clone + 'tok,
+    E: NitParser<'tok, I, Expr>,
+    B: NitParser<'tok, I, Vec<Statement>>,
+    P: NitParser<'tok, I, ParamType>,
 {
     // simple infinite loop
     let infinite = just(Token::Loop)
@@ -679,7 +694,7 @@ where
 
     // while loop
     let while_loop = just(Token::While)
-        .ignore_then(parser_expr(true))
+        .ignore_then(parse_expr.clone())
         .map_with(|condition, extra| {
             WhileLoopHeader::new(convert_span(extra.span()), condition, false).to_box()
         })
@@ -693,7 +708,7 @@ where
         .ignore_then(block.clone())
         .then(
             just(Token::While)
-                .ignore_then(parser_expr(true))
+                .ignore_then(parse_expr)
                 .then_ignore(just(Token::Semicolon))
                 .map_with(|condition, extra| {
                     WhileLoopHeader::new(convert_span(extra.span()), condition, true).to_box()
@@ -704,12 +719,13 @@ where
         });
 
     // for loop
-    let for_iterator = parser_param_type();
-    let for_range = parser_expr(false)
+    let for_iterator = param_type;
+    let for_range = expr_const
+        .clone()
         .then(select! { Token::Range(range) => range })
-        .then(parser_expr(false))
+        .then(expr_const.clone())
         .map(|((start, range), end)| (start, range, end));
-    let for_step = just(Token::Step).ignore_then(parser_expr(false)).or_not();
+    let for_step = just(Token::Step).ignore_then(expr_const).or_not();
     let for_loop = just(Token::For)
         .ignore_then(for_iterator)
         .then_ignore(just(Token::Of))

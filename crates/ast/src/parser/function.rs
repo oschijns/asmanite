@@ -5,9 +5,10 @@ use crate::{
         token::{IdentOrReg, Token},
     },
     parser::{
-        composite_type::{Generics, parser_generics},
+        NitParser,
+        composite_type::{Generics, TypeUsed, parser_generics},
         memory::{
-            MemStorage, ParamDecl, ReturnType, parser_mem_storage, parser_param_decl,
+            MemStorage, ParamDecl, ParamStorage, ReturnType, parser_mem_storage, parser_param_decl,
             parser_return_type,
         },
         statement::{Statement, parser_block, parser_statement},
@@ -124,21 +125,20 @@ const PAREN_OPEN: Token = Token::Delimiter(delimiter::PAREN_OPEN);
 const PAREN_CLOSE: Token = Token::Delimiter(delimiter::PAREN_CLOSE);
 
 /// Parse a function declaration.
-#[inline]
-pub fn parser_function<'tok, 'src: 'tok, I>()
--> impl Parser<'tok, I, FuncDecl, extra::Err<Rich<'tok, Token>>>
-where
-    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-{
-    parser_function_with_statement(parser_statement())
-}
-
-pub(crate) fn parser_function_with_statement<'tok, 'src: 'tok, I, S>(
-    statement: S,
+pub fn parser_function<'tok, 'src: 'tok, I, G, B, M, P, R>(
+    generics: G,
+    parse_block: B,
+    mem_storage: M,
+    param_decl: P,
+    return_type: R,
 ) -> impl Parser<'tok, I, FuncDecl, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    S: Parser<'tok, I, Statement, extra::Err<Rich<'tok, Token>>>,
+    G: NitParser<'tok, I, Generics>,
+    B: NitParser<'tok, I, Vec<Statement>>,
+    M: NitParser<'tok, I, MemStorage>,
+    P: NitParser<'tok, I, ParamDecl>,
+    R: NitParser<'tok, I, ReturnType>,
 {
     let marker = select! {
         Token::Inline => FuncMarker::Inline,
@@ -150,21 +150,17 @@ where
     let function = select! {
         Token::Ident(IdentOrReg::Ident(ident)) => ident
     }
-    .then(parser_generics().or_not())
-    .then(parser_mem_storage())
+    .then(generics.or_not())
+    .then(mem_storage)
     .then(
-        parser_param_decl()
+        param_decl
             .separated_by(just(Token::Comma))
             .allow_trailing()
             .collect::<Vec<_>>()
             .delimited_by(just(PAREN_OPEN), just(PAREN_CLOSE)),
     )
-    .then(
-        just(Token::Arrow)
-            .ignore_then(parser_return_type())
-            .or_not(),
-    )
-    .then(parser_block(statement))
+    .then(just(Token::Arrow).ignore_then(return_type).or_not())
+    .then(parse_block)
     .map_with(
         |(((((ident, generics), storage), parameters), return_type), block), extra| {
             let mut func = FuncDecl::new(

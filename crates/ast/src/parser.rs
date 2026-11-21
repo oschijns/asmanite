@@ -16,12 +16,22 @@ pub mod statement;
 /// Parser for function header
 pub mod function;
 
+use crate::lexer::token::Token;
 use asmanite_common::span::Span;
+use chumsky::{Parser, error::Rich, extra, input::ValueInput, span::SimpleSpan};
 
 /// Convert a chumsky span into our own span type
 #[inline]
-fn convert_span(span: chumsky::span::SimpleSpan) -> Span {
+fn convert_span(span: SimpleSpan) -> Span {
     Span::new(span.start, span.end)
+}
+
+/// Define an alias for parser trait
+pub trait NitParser<'tok, I, T>:
+    Parser<'tok, I, T, extra::Err<Rich<'tok, Token>>> + Clone + 'tok
+where
+    I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+{
 }
 
 #[cfg(test)]

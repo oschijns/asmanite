@@ -4,7 +4,7 @@ use crate::{
         atom::*,
         token::{IdentOrReg, Token},
     },
-    parser::{memory::parser_register, module::parser_path},
+    parser::{NitParser, memory::parser_register},
 };
 use asmanite_common::{
     ToBox,
@@ -309,11 +309,13 @@ const BRACKET_CLOSE: Token = Token::Delimiter(delimiter::BRACKET_CLOSE);
 /// Read tokens to produce an expression.
 /// Provide a flag to indicate if assignments are allowed in the expression.
 /// Assignments can introduce syntax ambiguities in some contextes.
-pub fn parser_expr<'tok, 'src: 'tok, I>(
+pub fn parser_expr<'tok, 'src: 'tok, I, P>(
+    parse_path: P,
     allow_assign: bool,
 ) -> impl Parser<'tok, I, Expr, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
+    P: NitParser<'tok, I, Path>,
 {
     recursive(|expr| {
         let literal = select! { Token::Lit(literal) => literal }.map_with(|literal, extra| {
@@ -327,17 +329,16 @@ where
         let arguments = parser_expr_seq(expr.clone(), DelimType::Paren).boxed();
 
         // path to a variable or a function
-        let path =
-            parser_path()
-                .boxed()
-                .then(arguments.or_not())
-                .map_with(|(callee, args), extra| {
-                    let span = convert_span(extra.span());
-                    match args {
-                        Some(args) => Expr::Call(FunctionCall::new(span, callee, args).to_box()),
-                        None => Expr::Var(WithSpan::new(span, callee)),
-                    }
-                });
+        let path = parse_path
+            .boxed()
+            .then(arguments.or_not())
+            .map_with(|(callee, args), extra| {
+                let span = convert_span(extra.span());
+                match args {
+                    Some(args) => Expr::Call(FunctionCall::new(span, callee, args).to_box()),
+                    None => Expr::Var(WithSpan::new(span, callee)),
+                }
+            });
 
         let grouped = expr
             .clone()
@@ -384,7 +385,7 @@ pub fn parser_index_op<'tok, 'src: 'tok, I, E>(
 ) -> impl PrattOperator<'tok, I, Expr, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    E: Parser<'tok, I, Expr, extra::Err<Rich<'tok, Token>>> + Clone + 'tok,
+    E: NitParser<'tok, I, Expr>,
 {
     let index = just(BRACKET_OPEN)
         .ignore_then(expr)
@@ -431,7 +432,7 @@ pub fn parser_expr_seq<'tok, 'src: 'tok, I, E>(
 ) -> impl Parser<'tok, I, Vec<Expr>, extra::Err<Rich<'tok, Token>>>
 where
     I: ValueInput<'tok, Token = Token, Span = SimpleSpan>,
-    E: Parser<'tok, I, Expr, extra::Err<Rich<'tok, Token>>> + Clone + 'tok,
+    E: NitParser<'tok, I, Expr>,
 {
     // Generate the two expected delimiters
     let open = Token::Delimiter(Delimiter::open(delim_type));
