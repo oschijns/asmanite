@@ -1,5 +1,8 @@
-use core::fmt;
-use std::fmt::Write as _;
+use core::fmt::{self, Write as _};
+use num_traits::{
+    CheckedDiv, CheckedRem, PrimInt, WrappingAdd, WrappingMul, WrappingNeg, WrappingShl,
+    WrappingShr, WrappingSub,
+};
 
 // MARK: ASSIGN
 
@@ -300,14 +303,188 @@ impl OpType {
     #[rustfmt::skip]
     pub const fn is_unary(self) -> bool {
         matches!(self,
-            OpType::Not    | // !
-            OpType::BitInv | // ~
-            OpType::BitAnd | // &
-            OpType::Inc    | // ++
-            OpType::Dec    | // --
-            OpType::Add    | // +
-            OpType::Sub    | // -
-            OpType::Mul      // *
+            Self::Not    | // !
+            Self::BitInv | // ~
+            Self::BitAnd | // &
+            Self::Inc    | // ++
+            Self::Dec    | // --
+            Self::Add    | // +
+            Self::Sub    | // -
+            Self::Mul      // *
         )
+    }
+
+    /// Is the operator a comparison ?
+    pub fn is_comparison(self) -> bool {
+        matches!(
+            self,
+            Self::Eq | Self::Diff | Self::Lt | Self::Gt | Self::LEq | Self::GEq
+        )
+    }
+
+    /// Inverse a comparison operator
+    #[rustfmt::skip]
+    pub fn inverse_comparison(self) -> Option<Self> {
+        let inv = match self {
+            Self::Eq   => Self::Diff,
+            Self::Diff => Self::Eq,
+            Self::Lt   => Self::GEq,
+            Self::Gt   => Self::LEq,
+            Self::LEq  => Self::Gt,
+            Self::GEq  => Self::Lt,
+            Self::And  => Self::Or,
+            Self::Or   => Self::And,
+            _ => { return None; }
+        };
+        Some(inv)
+    }
+
+    /// Evaluate the comparison operator (for compile-time expressions)
+    #[rustfmt::skip]
+    pub fn eval_compare<I>(self, lhs: I, rhs: I) -> Option<bool>
+    where
+        I: PartialOrd<I>,
+    {
+        let result = match self {
+            Self::Eq   => lhs == rhs,
+            Self::Diff => lhs != rhs,
+            Self::Lt   => lhs <  rhs,
+            Self::Gt   => lhs >  rhs,
+            Self::LEq  => lhs <= rhs,
+            Self::GEq  => lhs >= rhs,
+            _ => { return None; }
+        };
+        Some(result)
+    }
+
+    /// Evaluate the boolean operator (for compile-time expressions)
+    #[rustfmt::skip]
+    pub fn eval_boolean(self, lhs: bool, rhs: bool) -> Option<bool> {
+        let result = match self {
+            Self::And => lhs && rhs,
+            Self::Or  => lhs || rhs,
+            _ => { return None; }
+        };
+        Some(result)
+    }
+
+    /// Evaluate the binary operator (for compile-time expressions).
+    /// Returns `None` on a division by zero.
+    #[rustfmt::skip]
+    pub fn eval_binary<I>(self, lhs: I, rhs: I) -> Option<I>
+    where
+        I: PrimInt + WrappingAdd + WrappingSub + WrappingMul + CheckedDiv + CheckedRem,
+    {
+        let result = match self {
+            Self::BitAnd => lhs & rhs,
+            Self::BitOr  => lhs | rhs,
+            Self::BitXor => lhs ^ rhs,
+            Self::Add    => lhs.wrapping_add(&rhs),
+            Self::Sub    => lhs.wrapping_sub(&rhs),
+            Self::Mul    => lhs.wrapping_mul(&rhs),
+            Self::Div    => lhs.checked_div (&rhs)?,
+            Self::Rem    => lhs.checked_rem (&rhs)?,
+            _ => { return None; }
+        };
+        Some(result)
+    }
+
+    /// Evaluate the bitshift and rotation operators (for compile-time expressions).
+    ///
+    /// The width of `I` is the width of the rotated value:
+    /// `0x81_u8 <+ 1 == 0x03` but `0x81_u16 <+ 1 == 0x0102`.
+    /// Like the wrapping shifts, the amount is taken modulo the width of `I`.
+    #[rustfmt::skip]
+    pub fn eval_bitshift<I>(self, lhs: I, rhs: u32) -> Option<I>
+    where
+        I: PrimInt + WrappingShl + WrappingShr,
+    {
+        let bits = I::zero().count_zeros();
+        let result = match self {
+            Self::ShL  => lhs.wrapping_shl(rhs),
+            Self::ShRA => lhs.signed_shr  (rhs % bits),
+            Self::ShRL => lhs.unsigned_shr(rhs % bits),
+            Self::RotL => lhs.rotate_left (rhs % bits),
+            Self::RotR => lhs.rotate_right(rhs % bits),
+            _ => { return None; }
+        };
+        Some(result)
+    }
+
+    /// Evaluate the unary operator (for compile-time expressions)
+    #[rustfmt::skip]
+    pub fn eval_unnary<I>(self, op: I) -> Option<I>
+    where
+        I: PrimInt + WrappingNeg + WrappingAdd + WrappingSub,
+    {
+        let result = match self {
+            Self::Add    => op,
+            Self::BitInv => !op,
+            Self::Sub    => op.wrapping_neg(),
+            Self::Inc    => op.wrapping_add(&I::one()),
+            Self::Dec    => op.wrapping_sub(&I::one()),
+            _ => { return None; }
+        };
+        Some(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::OpType;
+
+    #[test]
+    fn rotates_within_the_width_of_the_type() {
+        assert_eq!(OpType::RotL.eval_bitshift(0x81_u8, 1), Some(0x03));
+        assert_eq!(OpType::RotR.eval_bitshift(0x81_u8, 1), Some(0xC0));
+        assert_eq!(OpType::RotL.eval_bitshift(0x8001_u16, 4), Some(0x0018));
+        assert_eq!(OpType::RotR.eval_bitshift(0x8001_u16, 4), Some(0x1800));
+        assert_eq!(
+            OpType::RotL.eval_bitshift(0x8000_0001_u32, 1),
+            Some(0x0000_0003)
+        );
+        assert_eq!(
+            OpType::RotR.eval_bitshift(0x8000_0001_u32, 1),
+            Some(0xC000_0000)
+        );
+        assert_eq!(OpType::RotL.eval_bitshift(1_u64 << 63, 1), Some(1));
+        assert_eq!(OpType::RotR.eval_bitshift(1_u64, 1), Some(1 << 63));
+        assert_eq!(
+            OpType::RotL.eval_bitshift(1_usize << (usize::BITS - 1), 1),
+            Some(1)
+        );
+        assert_eq!(
+            OpType::RotR.eval_bitshift(1_usize, 1),
+            Some(1 << (usize::BITS - 1))
+        );
+    }
+
+    #[test]
+    fn rotation_amount_wraps_around_the_width() {
+        assert_eq!(OpType::RotL.eval_bitshift(0x81_u8, 8), Some(0x81));
+        assert_eq!(OpType::RotL.eval_bitshift(0x81_u8, 9), Some(0x03));
+        assert_eq!(OpType::RotR.eval_bitshift(0x8001_u16, 20), Some(0x1800));
+        assert_eq!(OpType::RotL.eval_bitshift(0x1234_u16, 0), Some(0x1234));
+    }
+
+    #[test]
+    fn rotations_are_reversible() {
+        for amount in 0..70 {
+            let left = OpType::RotL.eval_bitshift(0xDEAD_BEEF_u32, amount).unwrap();
+            assert_eq!(OpType::RotR.eval_bitshift(left, amount), Some(0xDEAD_BEEF));
+        }
+    }
+
+    #[test]
+    fn distinguishes_arithmetic_and_logical_shifts() {
+        assert_eq!(OpType::ShRA.eval_bitshift(-128_i8, 1), Some(-64));
+        assert_eq!(OpType::ShRL.eval_bitshift(-128_i8, 1), Some(64));
+        assert_eq!(OpType::ShRL.eval_bitshift(0x80_u8, 7), Some(1));
+    }
+
+    #[test]
+    fn rejects_non_shift_operators() {
+        assert_eq!(OpType::Add.eval_bitshift(1_u8, 1), None);
+        assert_eq!(OpType::Div.eval_binary(1_u8, 0), None);
     }
 }

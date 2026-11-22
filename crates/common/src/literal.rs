@@ -1,4 +1,5 @@
 use core::fmt;
+use num_traits::ToPrimitive;
 
 /// Implement Display trait
 macro_rules! impl_display {
@@ -63,3 +64,31 @@ impl_display!(FloatLit);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StrLit(pub Box<str>);
 impl_display!(StrLit, r#""{}""#);
+
+impl ToPrimitive for Literal {
+    /// Cast the literal into a signed 64-bits integer
+    #[rustfmt::skip]
+    fn to_i64(&self) -> Option<i64> {
+        let int = match self {
+            Self::Bool (lit) => lit.0 as i64,
+            Self::Char (lit) => lit.0 as i64,
+            Self::Int  (lit) => lit.0 as i64,
+            Self::Float(lit) => lit.0 as i64,
+            Self::Str  ( _ ) => { return None; }
+        };
+        Some(int)
+    }
+
+    /// Cast the literal into a unsigned 64-bits integer
+    #[rustfmt::skip]
+    fn to_u64(&self) -> Option<u64> {
+        let int = match self {
+            Self::Bool (lit) => lit.0 as u64,
+            Self::Char (lit) => lit.0 as u64,
+            Self::Int  (lit) => lit.0 as u64,
+            Self::Float(lit) => lit.0 as u64,
+            Self::Str  ( _ ) => { return None; }
+        };
+        Some(int)
+    }
+}

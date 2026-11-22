@@ -38,3 +38,7 @@ pub trait ToBox: Sized {
         Box::new(self)
     }
 }
+
+// re-export crates
+pub use indextree;
+pub use num_traits;
