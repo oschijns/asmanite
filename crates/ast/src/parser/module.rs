@@ -7,7 +7,12 @@ use crate::{
             Token::{self},
         },
     },
-    parser::{SubParser, composite_type::TypeDecl, function::FuncDecl, memory::VarDecl},
+    parser::{
+        SubParser,
+        composite_type::TypeDecl,
+        function::FuncDecl,
+        memory::{InBankMod, VarDecl, parser_in_bank_mod},
+    },
 };
 use asmanite_common::{
     ToBox,
@@ -83,6 +88,9 @@ pub enum ModElement {
 
     /// Function declaration
     Func(Box<FuncDecl>),
+
+    /// Variables and functions placed in a bank: `in bank { ... }`
+    Bank(Box<InBankMod>),
 }
 
 impl Spanned for ModElement {
@@ -95,6 +103,7 @@ impl Spanned for ModElement {
             Self::Type   (ty  ) => ty  .span(),
             Self::Var    (var ) => var .span,
             Self::Func   (func) => func.span,
+            Self::Bank   (bank) => bank.span,
         }
     }
 }
@@ -231,7 +240,12 @@ where
                 }
             });
 
+        let bank = parser_in_bank_mod(parse_var.clone(), parse_func.clone())
+            .map(|bank| ModElement::Bank(bank.to_box()))
+            .boxed();
+
         module
+            .or(bank)
             .or(parser_use().map(|u| ModElement::Use(u.to_box())).boxed())
             .or(parse_type.map(ModElement::Type).boxed())
             .or(parse_var.map(|var| ModElement::Var(var.to_box())).boxed())
@@ -418,6 +432,18 @@ mod tests {
             &inline.elements[0],
             ModElement::ModDecl(decl) if decl.atom == Ident::new("nested")
         ));
+    }
+
+    #[test]
+    fn parses_in_bank_blocks_in_modules() {
+        let module = parse_module_file("in prog { static FLAG: u8; fn f() {} }").unwrap();
+        assert_eq!(module.elements.len(), 1);
+
+        let ModElement::Bank(bank) = &module.elements[0] else {
+            panic!("expected in-bank block");
+        };
+        assert_eq!(bank.ident, Ident::new("prog"));
+        assert_eq!(bank.elements.len(), 2);
     }
 
     #[test]

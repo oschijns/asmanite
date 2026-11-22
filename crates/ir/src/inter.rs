@@ -14,10 +14,15 @@ pub type Relative = i64;
 pub type Int = i64;
 
 /// Program to transform into CPU target instructions
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct IrProgram {
-    /// Memory cells to reserve (global variables, static variables)
+    /// Memory cells to reserve that are not owned by a function
+    /// (static variables, memory of the inline functions)
     pub data: Vec<IrData>,
+
+    /// Code run by the target system at startup, before anything else.
+    /// It computes the initial value of the static variables.
+    pub init: IrFunc,
 
     /// Functions to convert
     pub functions: Vec<IrFunc>,
@@ -34,17 +39,14 @@ pub struct IrData {
 
     /// Where to place the variable
     pub storage: IrStorage,
-
-    /// Value of the memory cell when the program starts, if any
-    pub init: Option<Int>,
 }
 
-/// Placement of a memory cell or a function
-#[derive(Debug, Default, Clone, PartialEq)]
+/// Placement of a memory cell or a function.
+/// The placement is always explicit: the compiler never chooses it.
+#[derive(Debug, Clone, PartialEq)]
 pub enum IrStorage {
-    /// Let the backend decide where to place it
-    #[default]
-    Auto,
+    /// Startup routine (initialize static variables)
+    Startup,
 
     /// Place it somewhere in the given memory bank
     Bank(Ident),
@@ -62,7 +64,8 @@ pub struct IrFunc {
     /// Absolute path of the function
     pub name: Path,
 
-    /// Where to place the code of the function
+    /// Where to place the code of the function.
+    /// Inline functions do not appear in the IR: they are expanded at each call site.
     pub storage: IrStorage,
 
     /// Location of each parameter, in declaration order.
@@ -75,9 +78,6 @@ pub struct IrFunc {
 
     /// Memory cells owned by the function (memory parameters, return value, locals)
     pub locals: Vec<IrData>,
-
-    /// Number of temporaries (`Operand::Temp`) used in the body
-    pub temps: u32,
 
     /// Instructions of the function
     pub body: Vec<OpCode>,
