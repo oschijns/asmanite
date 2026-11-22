@@ -21,3 +21,6 @@ asmanite-common = { path = "../common" }
 asmanite-ast    = { path = "../ast"    }
 asmanite-ir     = { path = "../ir"     }
 
+[dev-dependencies]
+chumsky = "0.13"
+logos   = "0.16"
