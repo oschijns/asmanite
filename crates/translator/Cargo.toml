@@ -3,11 +3,11 @@ name = "asmanite-translator"
 description = "Translate Asmanite syntax into intermediate representation"
 repository.workspace = true
 categories.workspace = true
-keywords  .workspace = true
-authors   .workspace = true
-version   .workspace = true
-edition   .workspace = true
-license   .workspace = true
+keywords.workspace = true
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
 # This crate translate the AST into the generic assembly IR.
 # It depends on both AST and IR crates.
@@ -18,9 +18,5 @@ license   .workspace = true
 # Common
 thiserror.workspace = true
 asmanite-common = { path = "../common" }
-asmanite-ast    = { path = "../ast"    }
-asmanite-ir     = { path = "../ir"     }
-
-[dev-dependencies]
-chumsky = "0.13"
-logos   = "0.16"
+asmanite-ast = { path = "../ast" }
+asmanite-ir = { path = "../ir" }

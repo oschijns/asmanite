@@ -51,10 +51,10 @@ use asmanite_ast::{
         statement::{IfElse, Loop, LoopCtrlType, LoopType, Statement, StmtInner, Switch},
     },
 };
+use asmanite_common::num_traits::ToPrimitive;
 use asmanite_common::{
     ToBox,
     ident::Ident,
-    literal::Literal,
     operator::{OpType, Operator, op},
     path::Path,
     span::{Span, Spanned},
@@ -504,7 +504,7 @@ impl<'a> Globals<'a> {
         let not_const = || TransformError::NotConstant { span: expr.span() };
 
         match expr {
-            Expr::Lit(lit) => literal_value(&lit.atom).ok_or_else(not_const),
+            Expr::Lit(lit) => lit.atom.to_i64().ok_or_else(not_const),
             Expr::Group(group) => self.eval_const(&group.atom, module, locals, visiting),
             // TODO: truncate the value to the size of the primitive
             Expr::Cast(cast) => self.eval_const(&cast.expr, module, locals, visiting),
@@ -542,13 +542,7 @@ impl<'a> Globals<'a> {
             }
             Expr::Unary(unary) => {
                 let value = self.eval_const(&unary.expr, module, locals, visiting)?;
-                match unary.op.op_type {
-                    OpType::Add => Ok(value),
-                    OpType::Sub => Ok(value.wrapping_neg()),
-                    OpType::BitInv => Ok(!value),
-                    OpType::Not => Ok(Int::from(value == 0)),
-                    _ => Err(not_const()),
-                }
+                eval_unary(unary.op.op_type, value).ok_or_else(not_const)
             }
             Expr::Binary(binary) if !binary.op.carry => {
                 let lhs = self.eval_const(&binary.lhs, module, locals, visiting)?;
@@ -635,63 +629,38 @@ impl<'a> Globals<'a> {
     }
 }
 
-/// Value of a literal usable as an integer
-fn literal_value(literal: &Literal) -> Option<Int> {
-    match literal {
-        Literal::Bool(b) => Some(Int::from(b.0)),
-        Literal::Char(c) => Some(Int::from(u32::from(c.0))),
-        Literal::Int(i) => Int::try_from(i.0).ok(),
-        Literal::Float(_) | Literal::Str(_) => None,
+/// Evaluate a binary operation on constants
+fn eval_binary(op: OpType, lhs: Int, rhs: Int) -> Option<Int> {
+    if let Some(result) = op.eval_compare(lhs, rhs) {
+        return Some(Int::from(result));
+    }
+    if let Some(result) = op.eval_boolean(lhs != 0, rhs != 0) {
+        return Some(Int::from(result));
+    }
+    match op {
+        // TODO: rotations depend on the width of the value,
+        // which requires tracking the primitive type of the constants
+        OpType::RotL | OpType::RotR => None,
+        OpType::ShL | OpType::ShRA | OpType::ShRL => {
+            op.eval_bitshift(lhs, u32::try_from(rhs).ok()?)
+        }
+        _ => op.eval_binary(lhs, rhs),
     }
 }
 
-/// Evaluate a binary operation on constants
-fn eval_binary(op: OpType, lhs: Int, rhs: Int) -> Option<Int> {
-    let shift = || u32::try_from(rhs).ok();
-    Some(match op {
-        OpType::Add => lhs.wrapping_add(rhs),
-        OpType::Sub => lhs.wrapping_sub(rhs),
-        OpType::Mul => lhs.wrapping_mul(rhs),
-        OpType::Div => lhs.checked_div(rhs)?,
-        OpType::Rem => lhs.checked_rem(rhs)?,
-        OpType::BitAnd => lhs & rhs,
-        OpType::BitOr => lhs | rhs,
-        OpType::BitXor => lhs ^ rhs,
-        OpType::ShL => lhs.checked_shl(shift()?)?,
-        OpType::ShRA => lhs.checked_shr(shift()?)?,
-        OpType::ShRL => (lhs as u64).checked_shr(shift()?)? as Int,
-        OpType::Eq => Int::from(lhs == rhs),
-        OpType::Diff => Int::from(lhs != rhs),
-        OpType::Lt => Int::from(lhs < rhs),
-        OpType::Gt => Int::from(lhs > rhs),
-        OpType::LEq => Int::from(lhs <= rhs),
-        OpType::GEq => Int::from(lhs >= rhs),
-        OpType::And => Int::from(lhs != 0 && rhs != 0),
-        OpType::Or => Int::from(lhs != 0 || rhs != 0),
-        // Rotations depend on the width of the value
-        _ => return None,
-    })
-}
-
-/// Is the operator a comparison ?
-fn is_relational(op: OpType) -> bool {
-    matches!(
-        op,
-        OpType::Eq | OpType::Diff | OpType::Lt | OpType::Gt | OpType::LEq | OpType::GEq
-    )
+/// Evaluate a unary operation on a constant
+fn eval_unary(op: OpType, value: Int) -> Option<Int> {
+    match op {
+        OpType::Not => Some(Int::from(value == 0)),
+        // Increments modify a place, they are not constant expressions
+        OpType::Inc | OpType::Dec => None,
+        _ => op.eval_unnary(value),
+    }
 }
 
 /// Comparison that holds exactly when the given one does not
 fn negate(op: Operator) -> Operator {
-    let op_type = match op.op_type {
-        OpType::Eq => OpType::Diff,
-        OpType::Diff => OpType::Eq,
-        OpType::Lt => OpType::GEq,
-        OpType::GEq => OpType::Lt,
-        OpType::Gt => OpType::LEq,
-        OpType::LEq => OpType::Gt,
-        other => other,
-    };
+    let op_type = op.op_type.inverse_comparison().unwrap_or(op.op_type);
     Operator { op_type, ..op }
 }
 
@@ -1610,7 +1579,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                 }
                 Ok(())
             }
-            Expr::Binary(binary) if is_relational(binary.op.op_type) => {
+            Expr::Binary(binary) if OpType::is_comparison(binary.op.op_type) => {
                 let lhs = self.lower_operand(&binary.lhs)?;
                 let rhs = self.lower_operand(&binary.rhs)?;
                 let op = if when { binary.op } else { negate(binary.op) };
@@ -1733,7 +1702,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
             Expr::Binary(binary) => {
                 // Comparisons and logical operators are only valid in conditions
                 let op_type = binary.op.op_type;
-                if is_relational(op_type) || matches!(op_type, OpType::And | OpType::Or) {
+                if OpType::is_comparison(op_type) || matches!(op_type, OpType::And | OpType::Or) {
                     return Err(TransformError::NotAnOperand { span: expr.span() });
                 }
                 let lhs = self.lower_operand(&binary.lhs)?;
@@ -1939,16 +1908,19 @@ fn collect_labels(block: &[Statement], labels: &mut HashSet<Ident>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use asmanite_ast::{lexer::token::Token, parser::Parsers};
+    use asmanite_ast::{
+        chumsky::{
+            Parser as _,
+            input::{Input as _, Stream},
+        },
+        lexer::token::Token,
+        logos::Logos as _,
+        parser::Parsers,
+    };
     use asmanite_common::{
         primitive::def::U8,
         register::{REGISTERS, RegDef, RegIdent, RegSet},
     };
-    use chumsky::{
-        Parser as _,
-        input::{Input as _, Stream},
-    };
-    use logos::Logos as _;
 
     fn parse(source: &str) -> Module {
         REGISTERS.get_or_init(|| {
