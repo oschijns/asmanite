@@ -52,7 +52,7 @@ mod storage;
 mod symbols;
 
 #[cfg(test)]
-mod test_utils;
+pub(crate) mod test_utils;
 
 pub use error::{TrsError, TrsErrorKind};
 
