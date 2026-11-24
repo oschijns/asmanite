@@ -3,13 +3,13 @@ name = "asmanite-ir"
 description = "Asmanite intermediate representation"
 repository.workspace = true
 categories.workspace = true
-keywords  .workspace = true
-authors   .workspace = true
-version   .workspace = true
-edition   .workspace = true
-license   .workspace = true
+keywords.workspace = true
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
-# This crate is dedicated to convert a generic assembly model 
+# This crate is dedicated to convert a generic assembly model
 # into various assembly implementation for various CPU targets.
 # As such, it should not depend on any particular AST.
 
@@ -19,3 +19,5 @@ license   .workspace = true
 thiserror.workspace = true
 asmanite-common = { path = "../common" }
 
+# Generate stream of bytes
+bytes = "1.12"
