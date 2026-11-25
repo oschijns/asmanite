@@ -16,7 +16,7 @@ thiserror.workspace = true
 strum.workspace = true
 
 # Symbol tree
-indextree = "4.9"
+# indextree = "4.9"
 
 # Compile-time evaluation
 num-traits = "0.2"

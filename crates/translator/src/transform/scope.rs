@@ -1,17 +1,21 @@
 //! Local scopes: declaration and lookup of the names visible in a function
 
 use super::{
-    constant::no_locals,
     error::{Result, TrsError, TrsErrorKind, unsupported},
     function::{FuncLowerer, child},
     startup::StaticInit,
-    symbols::Decl,
 };
+use crate::symbol::{SymbolType, SymbolValue, no_locals};
 use asmanite_ast::{
     lexer::atom::VarType,
-    parser::{composite_type::TypeUsed, memory::VarDecl},
+    parser::{composite_type::TypeUsed, expression::Expr, memory::VarDecl},
 };
-use asmanite_common::{ident::Ident, path::Path, span::Span};
+use asmanite_common::{
+    ident::Ident,
+    number::Number,
+    path::Path,
+    span::{Span, Spanned},
+};
 use asmanite_ir::intermediate::{IrData, Operand};
 use std::collections::HashMap;
 
@@ -122,12 +126,12 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                 };
                 match (&var.assign_expr, kind) {
                     // A static is initialized once, by the startup routine
-                    (Some(value), LocalKind::Static) => self.static_inits.push(StaticInit {
-                        target: name.clone(),
+                    (Some(value), LocalKind::Static) => self.static_inits.push(StaticInit::new(
+                        name.clone(),
                         value,
-                        module: self.module,
-                        scope: self.visible_locals(),
-                    }),
+                        self.module,
+                        self.visible_locals(),
+                    )),
                     // A var is initialized each time it is declared
                     (Some(value), _) => self.lower_into(operand.clone(), value)?,
                     (None, _) => {}
@@ -159,17 +163,22 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
         }
 
         let symbol = self.globals.resolve(self.module, path, span)?;
-        match symbol.decl {
-            Decl::Var(var) if matches!(var.var_type, VarType::Const | VarType::Let) => {
+        match symbol.symbol_type {
+            SymbolType::Var(var) if matches!(var.var_type, VarType::Const | VarType::Let) => {
                 let value = var
                     .assign_expr
                     .as_ref()
                     .ok_or(TrsError::new(span, TrsErrorKind::NotConstant))?;
                 self.globals
-                    .eval_const(value, symbol.module, &no_locals, &mut Vec::new())
+                    .eval_const(
+                        value,
+                        self.globals.module_of(symbol),
+                        &no_locals,
+                        &mut Vec::new(),
+                    )
                     .map(Operand::Imm)
             }
-            Decl::Var(_) => Ok(Operand::mem(symbol.path.clone())),
+            SymbolType::Var(_) => Ok(Operand::mem(symbol.path().clone())),
             _ => Err(TrsError::new(
                 span,
                 TrsErrorKind::WrongKind {
@@ -178,5 +187,32 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                 },
             )),
         }
+    }
+
+    /// Value of a local constant (see [`LocalConsts`])
+    pub fn local_const(&self, path: &Path) -> SymbolValue {
+        match self.local(path) {
+            None => SymbolValue::None,
+            Some(local) => match &local.operand {
+                Operand::Imm(value) if local.kind == LocalKind::Const => {
+                    SymbolValue::LocalConst(*value)
+                }
+                _ => SymbolValue::Local,
+            },
+        }
+    }
+
+    /// Try to evaluate an expression at compile time, using local constants
+    pub fn try_const(&self, expr: &Expr) -> Option<Number> {
+        let locals = |path: &Path| self.local_const(path);
+        self.globals
+            .eval_const(expr, self.module, &locals, &mut Vec::new())
+            .ok()
+    }
+
+    /// Evaluate an expression which must be constant
+    pub fn require_const(&self, expr: &Expr) -> Result<Number> {
+        self.try_const(expr)
+            .ok_or(TrsError::new(expr.span(), TrsErrorKind::NotConstant))
     }
 }

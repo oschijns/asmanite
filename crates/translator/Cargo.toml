@@ -20,3 +20,7 @@ thiserror.workspace = true
 asmanite-common = { path = "../common" }
 asmanite-ast = { path = "../ast" }
 asmanite-ir = { path = "../ir" }
+
+
+# Symbol tree
+indextree = "4.9"

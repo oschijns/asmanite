@@ -39,9 +39,8 @@
 
 mod call;
 mod condition;
-mod constant;
 mod emit;
-mod error;
+pub(crate) mod error;
 mod expression;
 mod function;
 mod inline;
@@ -49,18 +48,15 @@ mod scope;
 mod startup;
 mod statement;
 mod storage;
-mod symbols;
 
 #[cfg(test)]
 pub(crate) mod test_utils;
 
+// re-export error types
 pub use error::{TrsError, TrsErrorKind};
 
-use self::{
-    function::FuncLowerer,
-    startup::StaticInit,
-    symbols::{Decl, Globals},
-};
+use self::{function::FuncLowerer, startup::StaticInit};
+use crate::symbol::{SymbolTree, SymbolType};
 use asmanite_ast::parser::{function::FuncMarker, memory::MemStorage, module::Module};
 use asmanite_ir::intermediate::{IrData, IrProgram};
 use std::collections::HashMap;
@@ -75,27 +71,26 @@ pub fn transform(root: &Module) -> core::result::Result<IrProgram, Vec<TrsError>
     let mut errors = Vec::new();
 
     // Pass 1: register every declaration
-    let mut globals = Globals::new();
-    let root_node = globals.tree.root();
-    globals.collect(root, root_node, &[], &mut errors);
+    let mut globals = SymbolTree::new();
+    let root_node = globals.root();
+    globals.collect(root, root_node, &mut errors);
 
     // Pass 2: constants and static variables.
     // The initializers of the statics are computed at runtime, by the startup routine.
     let mut data = Vec::new();
     let mut init = FuncLowerer::startup(&globals, root_node);
-    for &node in &globals.order {
-        let symbol = &globals.symbols[&node];
-        if let Decl::Var(var) = symbol.decl {
+    for symbol in globals.symbols() {
+        if let SymbolType::Var(var) = symbol.symbol_type {
             match globals.global_data(symbol, var) {
                 Ok(Some(item)) => {
                     data.push(item);
                     if let Some(value) = &var.assign_expr {
-                        init.lower_static_init(StaticInit {
-                            target: symbol.path.clone(),
+                        init.lower_static_init(StaticInit::new(
+                            symbol.path().clone(),
                             value,
-                            module: symbol.module,
-                            scope: HashMap::new(),
-                        });
+                            globals.module_of(symbol),
+                            HashMap::new(),
+                        ));
                     }
                 }
                 Ok(None) => {}
@@ -107,9 +102,8 @@ pub fn transform(root: &Module) -> core::result::Result<IrProgram, Vec<TrsError>
     // Pass 3: function bodies
     let mut functions = Vec::new();
     let mut local_inits = Vec::new();
-    for &node in &globals.order {
-        let symbol = &globals.symbols[&node];
-        let Decl::Func(func) = symbol.decl else {
+    for symbol in globals.symbols() {
+        let SymbolType::Func(func) = symbol.symbol_type else {
             continue;
         };
         // Inline functions only exist where they are expanded
@@ -119,7 +113,7 @@ pub fn transform(root: &Module) -> core::result::Result<IrProgram, Vec<TrsError>
             }
             continue;
         }
-        let lowerer = FuncLowerer::new(&globals, symbol.module, symbol.path.clone());
+        let lowerer = FuncLowerer::new(&globals, globals.module_of(symbol), symbol.path().clone());
         match lowerer.lower(func, symbol.bank.as_ref()) {
             Ok(lowered) => {
                 local_inits.extend(lowered.static_inits);
@@ -176,9 +170,8 @@ fn push_new_data(data: &mut Vec<IrData>, cells: Vec<IrData>) {
 
 #[cfg(test)]
 mod tests {
-    use crate::transform::{TrsError, TrsErrorKind, transform};
-
     use crate::transform::test_utils::*;
+    use crate::transform::{TrsError, TrsErrorKind, transform};
 
     #[test]
     fn reports_every_error() {

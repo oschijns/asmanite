@@ -1,19 +1,18 @@
 //! Pass 3: lowering of a function and of its signature
 
 use super::{
-    constant::no_locals,
     error::{Result, TrsError, TrsErrorKind},
     scope::{Local, LocalKind},
     startup::StaticInit,
     statement::{LoopFrame, collect_labels},
-    symbols::Globals,
 };
+use crate::symbol::{NodeId, SymbolTree, no_locals};
 use asmanite_ast::parser::{
     composite_type::TypeUsed,
     function::FuncDecl,
     memory::{ParamDecl, ParamStorage, ParamType, ReturnType},
 };
-use asmanite_common::{ident::Ident, path::Path, span::Span, symbol_tree::NodeId};
+use asmanite_common::{ident::Ident, path::Path, span::Span};
 use asmanite_ir::{
     LabelId,
     intermediate::{IrData, IrFunc, IrStorage, Label, OpCode, Operand},
@@ -33,7 +32,7 @@ pub struct Lowered<'a> {
 
 /// Translate the body of one function
 pub struct FuncLowerer<'g, 'a> {
-    pub globals: &'g Globals<'a>,
+    pub globals: &'g SymbolTree<'a>,
 
     /// Module in which the function is declared
     pub(super) module: NodeId,
@@ -118,7 +117,7 @@ pub fn return_operand(func: &Path, ret: &ReturnType) -> Operand {
 
 impl<'g, 'a> FuncLowerer<'g, 'a> {
     /// Lowerer for a function declared in `module`
-    pub fn new(globals: &'g Globals<'a>, module: NodeId, path: Path) -> Self {
+    pub fn new(globals: &'g SymbolTree<'a>, module: NodeId, path: Path) -> Self {
         Self {
             globals,
             module,

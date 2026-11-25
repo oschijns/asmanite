@@ -1,11 +1,10 @@
 //! Lowering of function calls
 
 use super::{
-    constant::no_locals,
     error::{Result, TrsError, TrsErrorKind},
     function::{FuncLowerer, param_operand, return_operand},
-    symbols::Decl,
 };
+use crate::symbol::{SymbolType, no_locals};
 use asmanite_ast::parser::{expression::FunctionCall, function::FuncMarker};
 use asmanite_ir::intermediate::{OpCode, Operand};
 
@@ -14,7 +13,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
     /// Return the location of the result, or `None` if the function returns nothing.
     pub fn lower_call(&mut self, call: &'a FunctionCall) -> Result<Option<Operand>> {
         let symbol = self.globals.resolve(self.module, &call.callee, call.span)?;
-        let Decl::Func(func) = symbol.decl else {
+        let SymbolType::Func(func) = symbol.symbol_type else {
             return Err(TrsError::new(
                 call.span,
                 TrsErrorKind::WrongKind {
@@ -48,7 +47,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                 (Some(arg), _) => self.lower_operand(arg)?,
                 (None, Some(default)) => Operand::Imm(self.globals.eval_const(
                     default,
-                    symbol.module,
+                    self.globals.module_of(symbol),
                     &no_locals,
                     &mut Vec::new(),
                 )?),
@@ -62,15 +61,15 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
         }
 
         for (param, value) in params.iter().zip(values) {
-            self.transfer(param_operand(&symbol.path, param), value);
+            self.transfer(param_operand(symbol.path(), param), value);
         }
-        self.emit(OpCode::Call(symbol.path.clone()));
+        self.emit(OpCode::Call(symbol.path().clone()));
 
         // The result stays where the callee wrote it
         Ok(func
             .return_type
             .as_ref()
-            .map(|ret| return_operand(&symbol.path, ret)))
+            .map(|ret| return_operand(symbol.path(), ret)))
     }
 }
 

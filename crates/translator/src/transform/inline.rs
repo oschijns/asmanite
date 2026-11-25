@@ -5,10 +5,10 @@ use super::{
     function::{FuncLowerer, child, is_comptime, param_operand},
     scope::Local,
     statement::{LoopFrame, collect_labels},
-    symbols::Symbol,
 };
+use crate::symbol::{NodeId, SymbolData};
 use asmanite_ast::parser::function::FuncDecl;
-use asmanite_common::{ident::Ident, path::Path, span::Span, symbol_tree::NodeId};
+use asmanite_common::{ident::Ident, path::Path, span::Span};
 use asmanite_ir::{
     LabelId,
     intermediate::{IrData, Operand},
@@ -34,16 +34,16 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
     /// The runtime arguments are written into the parameters like for a call.
     pub fn expand_inline(
         &mut self,
-        symbol: &'g Symbol<'a>,
+        symbol: &'g SymbolData<'a>,
         func: &'a FuncDecl,
         args: Vec<Operand>,
         span: Span,
     ) -> Result<Option<Operand>> {
-        if self.inline_stack.contains(&symbol.path) {
+        if self.inline_stack.contains(symbol.path()) {
             return Err(TrsError::new(
                 span,
                 TrsErrorKind::RecursiveInline {
-                    path: symbol.path.clone(),
+                    path: symbol.path().clone(),
                 },
             ));
         }
@@ -59,13 +59,13 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
         }
         for (param, arg) in func.parameters.iter().zip(&args) {
             if !is_comptime(param) {
-                self.transfer(param_operand(&symbol.path, param), arg.clone());
+                self.transfer(param_operand(symbol.path(), param), arg.clone());
             }
         }
 
         // Switch to the context of the inline function
         let name = symbol
-            .path
+            .path()
             .as_slice()
             .last()
             .expect("a path is never empty");
@@ -75,8 +75,8 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
         );
         self.inline_count += 1;
         let caller = Context {
-            module: core::mem::replace(&mut self.module, symbol.module),
-            path: core::mem::replace(&mut self.path, symbol.path.clone()),
+            module: core::mem::replace(&mut self.module, self.globals.module_of(symbol)),
+            path: core::mem::replace(&mut self.path, symbol.path().clone()),
             label_path: core::mem::replace(&mut self.label_path, label_path),
             scopes: core::mem::take(&mut self.scopes),
             labels: core::mem::take(&mut self.labels),
@@ -88,7 +88,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
         };
 
         // Lower the body: `return` jumps right after the expansion
-        self.inline_stack.push(symbol.path.clone());
+        self.inline_stack.push(symbol.path().clone());
         self.scopes.push(HashMap::new());
         self.declare_signature(func, Some(&args));
         collect_labels(&func.block, &mut self.labels);

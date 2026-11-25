@@ -1,10 +1,7 @@
 //! Placement and size of the memory cells
 
-use super::{
-    constant::{LocalConsts, no_locals},
-    error::{Result, TrsError, TrsErrorKind, unsupported},
-    symbols::{Globals, Symbol},
-};
+use super::error::{Result, TrsError, TrsErrorKind, unsupported};
+use crate::symbol::{LocalConsts, NodeId, SymbolData, SymbolTree, no_locals};
 use asmanite_ast::{
     lexer::atom::VarType,
     parser::{
@@ -15,16 +12,15 @@ use asmanite_ast::{
 use asmanite_common::{
     ident::Ident,
     span::{Span, Spanned},
-    symbol_tree::NodeId,
 };
 use asmanite_ir::intermediate::{IrData, IrStorage};
 
-impl<'a> Globals<'a> {
+impl<'a> SymbolTree<'a> {
     /// Pass 2: memory to reserve for a variable declared in a module.
     /// Only `const` and `static` can be declared there.
     /// Constants do not need memory: they are replaced by their value.
-    pub fn global_data(&self, symbol: &Symbol<'a>, var: &'a VarDecl) -> Result<Option<IrData>> {
-        let module = symbol.module;
+    pub fn global_data(&self, symbol: &SymbolData<'a>, var: &'a VarDecl) -> Result<Option<IrData>> {
+        let module = self.module_of(symbol);
         match var.var_type {
             VarType::Const => {
                 // Evaluate it now to report errors even if the constant is never used
@@ -36,7 +32,7 @@ impl<'a> Globals<'a> {
                 Ok(None)
             }
             VarType::Static => Ok(Some(IrData {
-                name: symbol.path.clone(),
+                name: symbol.path().clone(),
                 size: self.size_of(&var.type_used, module, &no_locals)?,
                 storage: self.var_storage(var, module, &no_locals, symbol.bank.as_ref())?,
             })),
@@ -121,11 +117,9 @@ impl<'a> Globals<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::transform::{TrsError, TrsErrorKind, transform};
-
-    use asmanite_common::ident::Ident;
-
     use crate::transform::test_utils::*;
+    use crate::transform::{TrsError, TrsErrorKind, transform};
+    use asmanite_common::ident::Ident;
     use asmanite_ir::intermediate::IrStorage;
 
     #[test]

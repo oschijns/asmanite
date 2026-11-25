@@ -1,3 +1,4 @@
+use crate::number::{Number, Promoted};
 use core::fmt::{self, Write as _};
 use num_traits::{
     CheckedDiv, CheckedRem, PrimInt, WrappingAdd, WrappingMul, WrappingNeg, WrappingShl,
@@ -429,9 +430,83 @@ impl OpType {
     }
 }
 
+/// Evaluation of operators on [`Number`]s (for compile-time expressions)
+impl OpType {
+    /// Evaluate the arithmetic operator on floating point numbers.
+    /// Returns `None` for other operators and divisions by zero.
+    #[rustfmt::skip]
+    pub fn eval_float(self, lhs: f64, rhs: f64) -> Option<f64> {
+        let result = match self {
+            Self::Add => lhs + rhs,
+            Self::Sub => lhs - rhs,
+            Self::Mul => lhs * rhs,
+            Self::Div if rhs != 0.0 => lhs / rhs,
+            Self::Rem if rhs != 0.0 => lhs % rhs,
+            _ => { return None; }
+        };
+        Some(result)
+    }
+
+    /// Evaluate the binary operator on numbers.
+    /// Comparisons and boolean operators give `0` or `1`.
+    pub fn eval_binary_num(self, lhs: Number, rhs: Number) -> Option<Number> {
+        let promoted = lhs.promote(rhs);
+        let compare = match promoted {
+            Promoted::UInt(lhs, rhs) => self.eval_compare(lhs, rhs),
+            Promoted::Int(lhs, rhs) => self.eval_compare(lhs, rhs),
+            Promoted::Float(lhs, rhs) => self.eval_compare(lhs, rhs),
+        };
+        if let Some(result) = compare.or_else(|| self.eval_boolean(lhs.is_true(), rhs.is_true())) {
+            return Some(Number::from(result));
+        }
+        match self {
+            // TODO: rotations depend on the width of the value,
+            // which requires tracking the primitive type of the constants
+            Self::RotL | Self::RotR => None,
+            Self::ShL | Self::ShRA | Self::ShRL => {
+                let amount = match rhs {
+                    Number::Float(_) => return None,
+                    _ => u32::try_from(rhs).ok()?,
+                };
+                match lhs {
+                    Number::UInt(lhs) => self.eval_bitshift(lhs, amount).map(Number::from),
+                    Number::Int(lhs) => self.eval_bitshift(lhs, amount).map(Number::from),
+                    Number::Float(_) => None,
+                }
+            }
+            _ => match promoted {
+                // `1 - 2` is negative: switch to signed integers
+                Promoted::UInt(lhs, rhs) if self == Self::Sub && lhs < rhs => {
+                    Some(Number::from((lhs as i64).wrapping_sub(rhs as i64)))
+                }
+                Promoted::UInt(lhs, rhs) => self.eval_binary(lhs, rhs).map(Number::from),
+                Promoted::Int(lhs, rhs) => self.eval_binary(lhs, rhs).map(Number::from),
+                Promoted::Float(lhs, rhs) => self.eval_float(lhs, rhs).map(Number::from),
+            },
+        }
+    }
+
+    /// Evaluate the unary operator on a number.
+    /// Increments and decrements modify a place: they are not evaluated.
+    pub fn eval_unary_num(self, value: Number) -> Option<Number> {
+        match (self, value) {
+            (Self::Not, _) => Some(Number::from(!value.is_true())),
+            (Self::Inc | Self::Dec, _) => None,
+            // Negating an unsigned integer gives a signed one
+            (Self::Sub, Number::UInt(uint)) => Some(Number::from((uint as i64).wrapping_neg())),
+            (_, Number::UInt(uint)) => self.eval_unnary(uint).map(Number::from),
+            (_, Number::Int(int)) => self.eval_unnary(int).map(Number::from),
+            (Self::Add, Number::Float(_)) => Some(value),
+            (Self::Sub, Number::Float(float)) => Some(Number::from(-float)),
+            (_, Number::Float(_)) => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::OpType;
+    use crate::number::Number;
 
     #[test]
     fn rotates_within_the_width_of_the_type() {
@@ -486,5 +561,39 @@ mod tests {
     fn rejects_non_shift_operators() {
         assert_eq!(OpType::Add.eval_bitshift(1_u8, 1), None);
         assert_eq!(OpType::Div.eval_binary(1_u8, 0), None);
+    }
+
+    #[test]
+    fn evaluates_numbers() {
+        let (u, i, f) = (Number::UInt, Number::Int, Number::Float);
+        assert_eq!(OpType::Add.eval_binary_num(u(1), u(2)), Some(u(3)));
+        assert_eq!(OpType::Sub.eval_binary_num(u(1), u(2)), Some(i(-1)));
+        assert_eq!(OpType::Mul.eval_binary_num(i(-2), u(3)), Some(i(-6)));
+        assert_eq!(OpType::Div.eval_binary_num(f(1.0), u(2)), Some(f(0.5)));
+        assert_eq!(OpType::Div.eval_binary_num(u(1), u(0)), None);
+        assert_eq!(OpType::BitAnd.eval_binary_num(f(1.0), u(1)), None);
+        assert_eq!(OpType::ShL.eval_binary_num(u(1), u(4)), Some(u(16)));
+        assert_eq!(OpType::ShL.eval_binary_num(u(1), f(4.0)), None);
+        assert_eq!(OpType::RotL.eval_binary_num(u(1), u(1)), None);
+    }
+
+    #[test]
+    fn comparisons_and_booleans_give_zero_or_one() {
+        let (u, i, f) = (Number::UInt, Number::Int, Number::Float);
+        assert_eq!(OpType::Lt.eval_binary_num(i(-1), u(0)), Some(u(1)));
+        assert_eq!(OpType::Eq.eval_binary_num(f(2.0), u(2)), Some(u(1)));
+        assert_eq!(OpType::And.eval_binary_num(u(2), u(0)), Some(u(0)));
+        assert_eq!(OpType::Or.eval_binary_num(u(0), i(-3)), Some(u(1)));
+    }
+
+    #[test]
+    fn evaluates_unary_numbers() {
+        let (u, i, f) = (Number::UInt, Number::Int, Number::Float);
+        assert_eq!(OpType::Sub.eval_unary_num(u(5)), Some(i(-5)));
+        assert_eq!(OpType::Sub.eval_unary_num(f(1.5)), Some(f(-1.5)));
+        assert_eq!(OpType::Not.eval_unary_num(u(0)), Some(u(1)));
+        assert_eq!(OpType::BitInv.eval_unary_num(u(0)), Some(u(u64::MAX)));
+        assert_eq!(OpType::BitInv.eval_unary_num(f(0.0)), None);
+        assert_eq!(OpType::Inc.eval_unary_num(u(0)), None);
     }
 }

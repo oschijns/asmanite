@@ -4,35 +4,49 @@ use super::{
     error::TrsError,
     function::{FuncLowerer, Lowered},
     scope::Local,
-    symbols::Globals,
 };
+use crate::symbol::{NodeId, ROOT, SymbolTree};
 use asmanite_ast::parser::expression::Expr;
-use asmanite_common::{
-    ident::Ident,
-    path::Path,
-    symbol_tree::{NodeId, ROOT},
-};
+use asmanite_common::{ident::Ident, path::Path};
 use asmanite_ir::intermediate::{IrFunc, IrStorage, OpCode, Operand};
 use std::collections::HashMap;
 
 /// Initializer of a static variable, lowered into the startup routine
 pub struct StaticInit<'a> {
     /// Static variable to initialize
-    pub(super) target: Path,
+    target: Path,
 
     /// Initial value
-    pub(super) value: &'a Expr,
+    value: &'a Expr,
 
     /// Module from which names are resolved
-    pub(super) module: NodeId,
+    module: NodeId,
 
     /// Local variables visible from the initializer (for statics declared in functions)
-    pub(super) scope: HashMap<Ident, Local<'a>>,
+    scope: HashMap<Ident, Local<'a>>,
+}
+
+impl<'a> StaticInit<'a> {
+    /// Create a initializer
+    #[inline]
+    pub fn new(
+        target: Path,
+        value: &'a Expr,
+        module: NodeId,
+        scope: HashMap<Ident, Local<'a>>,
+    ) -> Self {
+        Self {
+            target,
+            value,
+            module,
+            scope,
+        }
+    }
 }
 
 impl<'g, 'a> FuncLowerer<'g, 'a> {
     /// Lowerer for the startup routine
-    pub fn startup(globals: &'g Globals<'a>, root: NodeId) -> Self {
+    pub fn startup(globals: &'g SymbolTree<'a>, root: NodeId) -> Self {
         let mut lowerer = Self::new(globals, root, Path::from(ROOT));
         lowerer.startup = true;
         lowerer
@@ -80,9 +94,10 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
 
 #[cfg(test)]
 mod tests {
+    use crate::symbol::ROOT;
     use crate::transform::test_utils::*;
     use crate::transform::{TrsError, TrsErrorKind, transform};
-    use asmanite_common::{ident::Ident, path::Path, symbol_tree::ROOT};
+    use asmanite_common::{ident::Ident, path::Path};
     use asmanite_ir::intermediate::{IrData, IrStorage, OpCode, Operand};
 
     #[test]

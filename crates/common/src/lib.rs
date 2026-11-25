@@ -28,9 +28,6 @@ pub mod primitive;
 /// Operators
 pub mod operator;
 
-/// Resolve symbols relative to modules
-pub mod symbol_tree;
-
 /// Define types for hashmap and hashset using small key types (max 64-bits)
 pub mod small_hash;
 
@@ -43,5 +40,4 @@ pub trait ToBox: Sized {
 }
 
 // re-export crates
-pub use indextree;
 pub use num_traits;

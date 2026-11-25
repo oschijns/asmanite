@@ -1,11 +1,10 @@
 //! Lowering of expressions onto operands, without temporaries
 
 use super::{
-    constant::no_locals,
     error::{Result, TrsError, TrsErrorKind, unsupported},
     function::FuncLowerer,
-    symbols::Decl,
 };
+use crate::symbol::{SymbolType, no_locals};
 use asmanite_ast::parser::{composite_type::TypeUsed, expression::Expr};
 use asmanite_common::{ToBox, operator::OpType, span::Spanned};
 use asmanite_ir::intermediate::{OpBinary, OpCode, OpUnary, Operand};
@@ -187,9 +186,11 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                 Some(local) => (local.ty, self.module),
                 None => {
                     let symbol = self.globals.resolve(self.module, &var.atom, var.span)?;
-                    match symbol.decl {
-                        Decl::Var(decl) => (Some(&decl.type_used), symbol.module),
-                        _ => (None, symbol.module),
+                    match symbol.symbol_type {
+                        SymbolType::Var(decl) => {
+                            (Some(&decl.type_used), self.globals.module_of(symbol))
+                        }
+                        _ => (None, self.globals.module_of(symbol)),
                     }
                 }
             },

@@ -32,6 +32,18 @@ pub struct IrData {
     pub storage: IrStorage,
 }
 
+impl IrData {
+    /// Memory reserved for a variable
+    #[inline]
+    pub fn new(name: Path, size: u32, storage: IrStorage) -> Self {
+        Self {
+            name,
+            size,
+            storage,
+        }
+    }
+}
+
 /// Placement of a memory cell or a function.
 /// The placement is always explicit: the compiler never chooses it.
 #[derive(Debug, Clone, PartialEq)]
@@ -122,6 +134,14 @@ pub struct OpBranch {
     pub target: JumpTarget,
 }
 
+impl OpBranch {
+    /// Create a branching instruction
+    #[inline]
+    pub fn new(cond: Condition, target: JumpTarget) -> Self {
+        Self { cond, target }
+    }
+}
+
 impl ToBox for OpBranch {}
 
 /// Condition in a branching operation
@@ -140,6 +160,20 @@ pub enum Condition {
     Compare(Box<OpCompare>),
 }
 
+impl Condition {
+    /// Condition on a CPU status flag
+    #[inline]
+    pub fn status(flag: StatusFlag, inverse: bool) -> Self {
+        Self::Status { flag, inverse }
+    }
+
+    /// Branch if the comparison between two operands holds
+    #[inline]
+    pub fn compare(op: OpCompare) -> Self {
+        Self::Compare(Box::new(op))
+    }
+}
+
 /// Comparison between two operands (`==`, `!=`, `<`, `>`, `<=`, `>=`)
 #[derive(Debug, Clone, PartialEq)]
 pub struct OpCompare {
@@ -151,6 +185,14 @@ pub struct OpCompare {
 
     /// Right operand
     pub rhs: Operand,
+}
+
+impl OpCompare {
+    /// Comparison between two operands
+    #[inline]
+    pub fn new(op: Operator, lhs: Operand, rhs: Operand) -> Self {
+        Self { op, lhs, rhs }
+    }
 }
 
 impl ToBox for OpCompare {}
@@ -184,6 +226,14 @@ pub struct OpTransfer {
     pub src: Operand,
 }
 
+impl OpTransfer {
+    /// Transfer data from one memory operand to an other
+    #[inline]
+    pub fn new(dst: Operand, src: Operand) -> Self {
+        Self { dst, src }
+    }
+}
+
 impl ToBox for OpTransfer {}
 
 /// Unary operation on an operand
@@ -197,6 +247,24 @@ pub struct OpUnary {
 
     /// Operand
     pub src: Operand,
+}
+
+impl OpUnary {
+    /// Create a new unary operation
+    #[inline]
+    pub fn new(op: Operator, dst: Operand, src: Operand) -> Self {
+        Self { op, dst, src }
+    }
+
+    /// Create a new unary operation
+    #[inline]
+    pub fn new_self(op: Operator, src: Operand) -> Self {
+        Self {
+            op,
+            dst: src.clone(),
+            src,
+        }
+    }
 }
 
 impl ToBox for OpUnary {}
@@ -215,6 +283,25 @@ pub struct OpBinary {
 
     /// Operand
     pub rhs: Operand,
+}
+
+impl OpBinary {
+    /// Create a new unary operation
+    #[inline]
+    pub fn new(op: Operator, dst: Operand, lhs: Operand, rhs: Operand) -> Self {
+        Self { op, dst, lhs, rhs }
+    }
+
+    /// Create a new unary operation
+    #[inline]
+    pub fn new_self(op: Operator, lhs: Operand, rhs: Operand) -> Self {
+        Self {
+            op,
+            dst: lhs.clone(),
+            lhs,
+            rhs,
+        }
+    }
 }
 
 impl ToBox for OpBinary {}
