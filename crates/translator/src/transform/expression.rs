@@ -32,12 +32,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                 OpType::Inc | OpType::Dec => {
                     let place = self.lower_place(&unary.expr)?;
                     self.emit(OpCode::Unary(
-                        OpUnary {
-                            op: unary.op,
-                            dst: place.clone(),
-                            src: place.clone(),
-                        }
-                        .to_box(),
+                        OpUnary::new_self(unary.op, place.clone()).to_box(),
                     ));
                     Ok(place)
                 }
@@ -52,13 +47,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                     Some(op) => {
                         let rhs = self.lower_operand(&assign.rhs)?;
                         self.emit(OpCode::Binary(
-                            OpBinary {
-                                op,
-                                dst: dst.clone(),
-                                lhs: dst.clone(),
-                                rhs,
-                            }
-                            .to_box(),
+                            OpBinary::new_self(op, dst.clone(), rhs).to_box(),
                         ));
                     }
                 }
@@ -101,14 +90,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                 OpType::Not => Err(TrsError::new(expr.span(), TrsErrorKind::NotAnOperand)),
                 _ => {
                     let src = self.lower_operand(&unary.expr)?;
-                    self.emit(OpCode::Unary(
-                        OpUnary {
-                            op: unary.op,
-                            dst,
-                            src,
-                        }
-                        .to_box(),
-                    ));
+                    self.emit(OpCode::Unary(OpUnary::new(unary.op, dst, src).to_box()));
                     Ok(())
                 }
             },
@@ -121,13 +103,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                 let lhs = self.lower_operand(&binary.lhs)?;
                 let rhs = self.lower_operand(&binary.rhs)?;
                 self.emit(OpCode::Binary(
-                    OpBinary {
-                        op: binary.op,
-                        dst,
-                        lhs,
-                        rhs,
-                    }
-                    .to_box(),
+                    OpBinary::new(binary.op, dst, lhs, rhs).to_box(),
                 ));
                 Ok(())
             }
@@ -234,14 +210,7 @@ mod tests {
                 binary(op::ADD, reg("a"), reg("a"), Operand::Imm(2u64.into())),
                 transfer(reg("y"), Operand::Imm(3u64.into())),
                 transfer(reg("x"), reg("y")),
-                OpCode::Unary(
-                    OpUnary {
-                        op: op::SUB,
-                        dst: mem("f::v"),
-                        src: reg("a"),
-                    }
-                    .to_box()
-                ),
+                OpCode::Unary(OpUnary::new(op::SUB, mem("f::v"), reg("a")).to_box()),
                 transfer(mem("f::v"), reg("x")),
                 label(0),
                 OpCode::Return,

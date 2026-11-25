@@ -164,11 +164,11 @@ mod tests {
         // The parameter cell of the inline function is reserved once
         assert_eq!(
             program.data,
-            vec![IrData {
-                name: Path::from("add_to::v"),
-                size: 1,
-                storage: IrStorage::Bank(Ident::new("zp")),
-            }]
+            vec![IrData::new(
+                Path::from("add_to::v"),
+                1,
+                IrStorage::Bank(Ident::new("zp"))
+            )]
         );
     }
 

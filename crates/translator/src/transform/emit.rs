@@ -35,19 +35,16 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
     /// Move a value, unless it already is at its destination
     pub fn transfer(&mut self, dst: Operand, src: Operand) {
         if dst != src {
-            self.emit(OpCode::Transfer(OpTransfer { dst, src }.to_box()));
+            self.emit(OpCode::Transfer(OpTransfer::new(dst, src).to_box()));
         }
     }
 
     pub fn branch(&mut self, cond: Condition, label: LabelId) {
         let target = JumpTarget::Label(Label::Local(label));
-        self.emit(OpCode::Branch(OpBranch { cond, target }.to_box()));
+        self.emit(OpCode::Branch(OpBranch::new(cond, target).to_box()));
     }
 
     pub fn compare(&mut self, op: Operator, lhs: Operand, rhs: Operand, label: LabelId) {
-        self.branch(
-            Condition::Compare(OpCompare { op, lhs, rhs }.to_box()),
-            label,
-        );
+        self.branch(Condition::compare(OpCompare::new(op, lhs, rhs)), label);
     }
 }

@@ -72,19 +72,19 @@ pub fn jump(id: LabelId) -> OpCode {
 }
 
 pub fn transfer(dst: Operand, src: Operand) -> OpCode {
-    OpCode::Transfer(OpTransfer { dst, src }.to_box())
+    OpCode::Transfer(OpTransfer::new(dst, src).to_box())
 }
 
 pub fn branch_cmp(op: Operator, lhs: Operand, rhs: Operand, target: LabelId) -> OpCode {
     OpCode::Branch(
-        OpBranch {
-            cond: Condition::Compare(OpCompare { op, lhs, rhs }.to_box()),
-            target: JumpTarget::Label(Label::Local(target)),
-        }
+        OpBranch::new(
+            Condition::compare(OpCompare::new(op, lhs, rhs)),
+            JumpTarget::Label(Label::Local(target)),
+        )
         .to_box(),
     )
 }
 
 pub fn binary(op: Operator, dst: Operand, lhs: Operand, rhs: Operand) -> OpCode {
-    OpCode::Binary(OpBinary { op, dst, lhs, rhs }.to_box())
+    OpCode::Binary(OpBinary::new(op, dst, lhs, rhs).to_box())
 }

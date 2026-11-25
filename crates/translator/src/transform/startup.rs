@@ -113,21 +113,13 @@ mod tests {
         assert_eq!(
             program.data,
             vec![
-                IrData {
-                    name: Path::from("DEVICE"),
-                    size: 1,
-                    storage: IrStorage::Addr(0x10),
-                },
-                IrData {
-                    name: Path::from("BUFFER"),
-                    size: 5,
-                    storage: IrStorage::Bank(Ident::new("ram")),
-                },
-                IrData {
-                    name: Path::from("sub::FLAG"),
-                    size: 1,
-                    storage: IrStorage::Bank(Ident::new("ram")),
-                },
+                IrData::new(Path::from("DEVICE"), 1, IrStorage::Addr(0x10)),
+                IrData::new(Path::from("BUFFER"), 5, IrStorage::Bank(Ident::new("ram"))),
+                IrData::new(
+                    Path::from("sub::FLAG"),
+                    1,
+                    IrStorage::Bank(Ident::new("ram"))
+                ),
             ]
         );
 

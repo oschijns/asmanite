@@ -137,11 +137,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                     (None, _) => {}
                 }
 
-                self.locals.push(IrData {
-                    name,
-                    size,
-                    storage,
-                });
+                self.locals.push(IrData::new(name, size, storage));
                 self.bind(var.ident.clone(), operand, Some(&var.type_used), kind);
                 Ok(())
             }

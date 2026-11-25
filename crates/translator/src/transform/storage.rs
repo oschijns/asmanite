@@ -31,11 +31,11 @@ impl<'a> SymbolTree<'a> {
                 self.eval_const(value, module, &no_locals, &mut Vec::new())?;
                 Ok(None)
             }
-            VarType::Static => Ok(Some(IrData {
-                name: symbol.path().clone(),
-                size: self.size_of(&var.type_used, module, &no_locals)?,
-                storage: self.var_storage(var, module, &no_locals, symbol.bank.as_ref())?,
-            })),
+            VarType::Static => Ok(Some(IrData::new(
+                symbol.path().clone(),
+                self.size_of(&var.type_used, module, &no_locals)?,
+                self.var_storage(var, module, &no_locals, symbol.bank.as_ref())?,
+            ))),
             VarType::Var | VarType::Let | VarType::Stack => Err(TrsError::new(
                 var.span,
                 TrsErrorKind::NotInModule {

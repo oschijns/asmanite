@@ -282,11 +282,11 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
         storage: &ParamStorage,
         span: Span,
     ) -> Result<IrData> {
-        Ok(IrData {
+        Ok(IrData::new(
             name,
-            size: self.globals.size_of(ty, self.module, &no_locals)?,
-            storage: self.globals.param_storage(storage, self.module, span)?,
-        })
+            self.globals.size_of(ty, self.module, &no_locals)?,
+            self.globals.param_storage(storage, self.module, span)?,
+        ))
     }
 
     pub fn push_local_data(&mut self, data: Result<IrData>) {

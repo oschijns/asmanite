@@ -250,13 +250,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                 self.lower_loop_body(&loop_stmt.block, label, end, cont);
                 self.place_label(cont);
                 self.emit(OpCode::Binary(
-                    OpBinary {
-                        op: op::ADD,
-                        dst: iter.clone(),
-                        lhs: iter,
-                        rhs: step,
-                    }
-                    .to_box(),
+                    OpBinary::new_self(op::ADD, iter, step).to_box(),
                 ));
                 self.jump(head);
                 self.scopes.pop();
@@ -325,11 +319,11 @@ mod tests {
         assert_eq!(func.ret, Some(reg("a")));
         assert_eq!(
             func.locals,
-            vec![IrData {
-                name: Path::from("check::value"),
-                size: 1,
-                storage: IrStorage::Bank(Ident::new("zp")),
-            }]
+            vec![IrData::new(
+                Path::from("check::value"),
+                1,
+                IrStorage::Bank(Ident::new("zp"))
+            )]
         );
         // L0: exit, L1: end of if, L2: next branch
         assert_eq!(
@@ -365,13 +359,7 @@ mod tests {
                 transfer(reg("a"), mem("f::i")),
                 label(3),
                 OpCode::Binary(
-                    OpBinary {
-                        op: op::ADD,
-                        dst: mem("f::i"),
-                        lhs: mem("f::i"),
-                        rhs: Operand::Imm(2u64.into()),
-                    }
-                    .to_box()
+                    OpBinary::new_self(op::ADD, mem("f::i"), Operand::Imm(2u64.into())).to_box()
                 ),
                 jump(1),
                 label(2),

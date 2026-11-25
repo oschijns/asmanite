@@ -22,10 +22,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
         match expr {
             Expr::Group(group) => self.lower_cond(&group.atom, when, target),
             Expr::Status(flag) => {
-                let cond = Condition::Status {
-                    flag: flag.atom,
-                    inverse: !when,
-                };
+                let cond = Condition::status(flag.atom, !when);
                 self.branch(cond, target);
                 Ok(())
             }
