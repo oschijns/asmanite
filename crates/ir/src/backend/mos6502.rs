@@ -34,12 +34,6 @@ pub const REGISTERS: [(&str, RegDef); 3] = [
 pub struct Mos6502 {
     /// Memory layout of the target system
     pub memory: MemoryMap,
-
-    /// Zero-page byte reserved for the backend.
-    /// Some sequences need it (comparing memory with memory, moving between
-    /// `x` and `y`, operations with `x` or `y` as right operand, ...).
-    /// Without it, these operations are reported as errors.
-    pub scratch: Option<u8>,
 }
 
 impl Mos6502 {
@@ -55,15 +49,7 @@ impl Mos6502 {
         let mut synthetic = 0;
         let sections = functions()
             .enumerate()
-            .map(|(id, func)| {
-                select::select(
-                    func,
-                    id as u32,
-                    &layout.symbols,
-                    self.scratch,
-                    &mut synthetic,
-                )
-            })
+            .map(|(id, func)| select::select(func, id as u32, &layout.symbols, &mut synthetic))
             .collect::<Result<Vec<_>, _>>()?;
         Ok((layout, sections))
     }
@@ -105,8 +91,6 @@ mod tests {
     };
     use std::collections::HashSet;
 
-    const SCRATCH: u8 = 0xFF;
-
     fn backend() -> Mos6502 {
         Mos6502 {
             memory: MemoryMap {
@@ -118,7 +102,6 @@ mod tests {
                 startup: Ident::new("code"),
                 fill: 0xFF,
             },
-            scratch: Some(SCRATCH),
         }
     }
 
@@ -268,8 +251,8 @@ mod tests {
     fn selects_arithmetic() {
         let data = vec![var("total", 1, "zp")];
         let body = vec![
-            // a += x, through the scratch byte
-            binary(op::ADD, reg("a"), reg("a"), reg("x")),
+            // a += total
+            binary(op::ADD, reg("a"), reg("a"), mem("total")),
             // total += 1
             binary(
                 op::ADD,
@@ -298,7 +281,7 @@ mod tests {
         ];
         #[rustfmt::skip]
         assert_eq!(code(data, body), vec![
-            0x86, SCRATCH, 0x18, 0x65, SCRATCH, // stx scratch / clc / adc scratch
+            0x18, 0x65, 0x00,                   // clc / adc total
             0xE6, 0x00,                         // inc total
             0xE5, 0x00,                         // sbc total
             0x06, 0x00, 0x06, 0x00,             // asl total / asl total
@@ -324,17 +307,17 @@ mod tests {
             compare(op::GT, Operand::Imm(20u64.into()), reg("a"), 0),
             // a > 7, i.e. a >= 8
             compare(op::GT, reg("a"), Operand::Imm(7u64.into()), 0),
-            // a > y: two branches
-            compare(op::GT, reg("a"), reg("y"), 0),
+            // a > limit: two branches
+            compare(op::GT, reg("a"), mem("limit"), 0),
         ];
         #[rustfmt::skip]
-        assert_eq!(code(vec![], body), vec![
+        assert_eq!(code(vec![var("limit", 1, "zp")], body), vec![
             0xE8,                   // $8001 inx
             0xE0, 0x0A, 0x90, 0xFB, // cpx #10 / bcc $8001
             0xC9, 0x14, 0x90, 0xF7, // cmp #20 / bcc $8001
             0xC9, 0x08, 0xB0, 0xF3, // cmp #8  / bcs $8001
-            0x84, SCRATCH, 0xC5, SCRATCH, // sty scratch / cmp scratch
-            0xF0, 0x02, 0xB0, 0xEB, // beq skip / bcs $8001
+            0xC5, 0x00,             // cmp limit
+            0xF0, 0x02, 0xB0, 0xED, // beq skip / bcs $8001
         ]);
     }
 
@@ -391,31 +374,33 @@ mod tests {
 
     #[test]
     fn reports_unsupported_operations() {
-        let program = program(
-            vec![],
-            vec![func(
-                "f",
-                vec![binary(op::MUL, reg("a"), reg("a"), reg("x"))],
-            )],
-        );
-        assert!(matches!(
-            backend().assemble(&program),
-            Err(BackendError::Unsupported { .. })
-        ));
-
-        let mut without_scratch = backend();
-        without_scratch.scratch = None;
-        let program = self::program(
-            vec![],
-            vec![func(
-                "f",
-                vec![binary(op::ADD, reg("a"), reg("a"), reg("x"))],
-            )],
-        );
-        assert!(matches!(
-            without_scratch.assemble(&program),
-            Err(BackendError::NeedsScratch { .. })
-        ));
+        let data = || vec![var("v", 1, "zp"), var("w", 4, "ram")];
+        let unsupported = [
+            // needs a runtime routine
+            binary(op::MUL, reg("a"), reg("a"), mem("v")),
+            // no operation between two registers
+            binary(op::ADD, reg("a"), reg("a"), reg("x")),
+            // `cmp` needs the accumulator, which cannot be restored without
+            // overwriting the flags
+            compare(op::EQ, mem("v"), Operand::Imm(1u64.into()), 0),
+            compare(op::LT, reg("a"), reg("y"), 0),
+            // no indexed `cpx`
+            compare(op::EQ, reg("x"), indexed("w", 0, "y"), 0),
+            // the accumulator cannot be kept while going through the stack
+            transfer(Operand::Stack, reg("x")),
+            transfer(reg("y"), Operand::Stack),
+            transfer(Operand::Stack, mem("v")),
+        ];
+        for opcode in unsupported {
+            let program = program(data(), vec![func("f", vec![label(0), opcode.clone()])]);
+            assert!(
+                matches!(
+                    backend().assemble(&program),
+                    Err(BackendError::Unsupported { .. })
+                ),
+                "{opcode:?} should be unsupported"
+            );
+        }
     }
 
     #[test]

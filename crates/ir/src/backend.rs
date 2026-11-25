@@ -53,9 +53,6 @@ pub enum BackendError {
         value: Number,
     },
 
-    #[error("in `{at}`: {what} requires a scratch byte in zero page")]
-    NeedsScratch { at: Path, what: &'static str },
-
     #[error("internal backend error: {0}")]
     Internal(String),
 }

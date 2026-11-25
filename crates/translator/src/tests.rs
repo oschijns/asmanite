@@ -19,7 +19,6 @@ fn mos6502() -> Mos6502 {
             startup: Ident::new("code"),
             fill: 0xFF,
         },
-        scratch: Some(0xFF),
     }
 }
 
