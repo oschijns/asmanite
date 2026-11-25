@@ -2,10 +2,9 @@
 
 use crate::transform::test_utils::translate;
 use asmanite_common::ident::Ident;
-use asmanite_ir::backend::{
-    Backend,
+use asmanite_ir::{
+    backend::{Backend, mos6502::Mos6502},
     link::{Bank, BankKind, MemoryMap},
-    mos6502::Mos6502,
 };
 
 /// 6502 with a zero page, some RAM and a 32 KiB ROM at $8000

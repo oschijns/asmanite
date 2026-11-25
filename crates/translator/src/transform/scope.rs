@@ -12,7 +12,7 @@ use asmanite_ast::{
     parser::{composite_type::TypeUsed, memory::VarDecl},
 };
 use asmanite_common::{ident::Ident, path::Path, span::Span};
-use asmanite_ir::inter::{IrData, opcode::Operand};
+use asmanite_ir::intermediate::{IrData, Operand};
 use std::collections::HashMap;
 
 /// Variable visible in a function body

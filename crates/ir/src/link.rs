@@ -6,17 +6,18 @@
 //! and the instruction selection turning each [`IrFunc`](crate::inter::IrFunc)
 //! into a [`Section`].
 
-use super::BackendError;
-use crate::inter::{IrData, IrStorage, opcode::LabelId};
+use crate::{
+    Addr, LabelId,
+    backend::BackendError,
+    intermediate::{IrData, IrStorage},
+};
 use asmanite_common::{ident::Ident, path::Path};
 use bytes::{Bytes, BytesMut};
 use core::fmt::{self, Write as _};
 use std::collections::{HashMap, HashSet};
 
+/// Result type used when converting the IR into the backend code
 type Result<T> = core::result::Result<T, BackendError>;
-
-/// Address in the address space of the target
-pub type Addr = u64;
 
 // MARK: Symbols
 
@@ -168,7 +169,7 @@ impl MemoryMap {
         match storage {
             IrStorage::Startup => self.bank(&self.startup).map(Placement::Bank),
             IrStorage::Bank(name) => self.bank(name).map(Placement::Bank),
-            IrStorage::Address(addr) => Ok(Placement::Fixed(*addr)),
+            IrStorage::Addr(addr) => Ok(Placement::Fixed(*addr)),
             IrStorage::Stack => Err(BackendError::Unsupported {
                 at: at.clone(),
                 what: "placement on the stack".to_owned(),

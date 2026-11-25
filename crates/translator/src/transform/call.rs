@@ -7,7 +7,7 @@ use super::{
     symbols::Decl,
 };
 use asmanite_ast::parser::{expression::FunctionCall, function::FuncMarker};
-use asmanite_ir::inter::opcode::{OpCode, Operand};
+use asmanite_ir::intermediate::{OpCode, Operand};
 
 impl<'g, 'a> FuncLowerer<'g, 'a> {
     /// Lower a function call.
@@ -77,10 +77,9 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
 #[cfg(test)]
 mod tests {
 
-    use asmanite_common::path::Path;
-
     use crate::transform::test_utils::*;
-    use asmanite_ir::inter::opcode::{OpCode, Operand};
+    use asmanite_common::path::Path;
+    use asmanite_ir::intermediate::{OpCode, Operand};
 
     #[test]
     fn lowers_calls_with_default_arguments() {
@@ -93,8 +92,8 @@ mod tests {
         assert_eq!(
             func.body,
             vec![
-                transfer(reg("a"), Operand::Imm(2)),
-                transfer(reg("x"), Operand::Imm(1)),
+                transfer(reg("a"), Operand::Imm(2u64.into())),
+                transfer(reg("x"), Operand::Imm(1u64.into())),
                 OpCode::Call(Path::from("add")),
                 // the result is read from the return register of `add`
                 transfer(mem("main::total"), reg("a")),

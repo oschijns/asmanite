@@ -9,9 +9,9 @@ use super::{
 };
 use asmanite_ast::parser::function::FuncDecl;
 use asmanite_common::{ident::Ident, path::Path, span::Span, symbol_tree::NodeId};
-use asmanite_ir::inter::{
-    IrData,
-    opcode::{LabelId, Operand},
+use asmanite_ir::{
+    LabelId,
+    intermediate::{IrData, Operand},
 };
 use std::collections::{HashMap, HashSet};
 
@@ -116,15 +116,10 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::transform::{TrsError, TrsErrorKind, transform};
-
-    use asmanite_common::{ident::Ident, operator::op, path::Path};
-
     use crate::transform::test_utils::*;
-    use asmanite_ir::inter::{
-        IrData, IrStorage,
-        opcode::{Label, OpCode, Operand},
-    };
+    use crate::transform::{TrsError, TrsErrorKind, transform};
+    use asmanite_common::{ident::Ident, operator::op, path::Path};
+    use asmanite_ir::intermediate::{IrData, IrStorage, Label, OpCode, Operand};
 
     #[test]
     fn expands_inline_functions_at_each_call_site() {
@@ -147,17 +142,17 @@ mod tests {
             function(&program, "main").body,
             vec![
                 transfer(mem("add_to::v"), mem("main::total")),
-                transfer(reg("x"), Operand::Imm(5)),
+                transfer(reg("x"), Operand::Imm(5u64.into())),
                 transfer(reg("a"), mem("add_to::v")),
-                binary(op::ADD, reg("a"), reg("a"), Operand::Imm(1)),
+                binary(op::ADD, reg("a"), reg("a"), Operand::Imm(1u64.into())),
                 OpCode::Label(Label::Named(Path::from("main::add_to.0::done"))),
                 jump(1),
                 label(1),
                 transfer(mem("main::total"), reg("a")),
                 transfer(mem("add_to::v"), mem("main::total")),
-                transfer(reg("x"), Operand::Imm(6)),
+                transfer(reg("x"), Operand::Imm(6u64.into())),
                 transfer(reg("a"), mem("add_to::v")),
-                binary(op::ADD, reg("a"), reg("a"), Operand::Imm(2)),
+                binary(op::ADD, reg("a"), reg("a"), Operand::Imm(2u64.into())),
                 OpCode::Label(Label::Named(Path::from("main::add_to.1::done"))),
                 jump(2),
                 label(2),
@@ -185,7 +180,7 @@ mod tests {
              fn main in code () { outer(); }",
         );
 
-        let increment = binary(op::ADD, reg("a"), reg("a"), Operand::Imm(1));
+        let increment = binary(op::ADD, reg("a"), reg("a"), Operand::Imm(1u64.into()));
         // L0: exit of main, L1: exit of outer, L2/L3: exits of inner
         assert_eq!(
             function(&program, "main").body,

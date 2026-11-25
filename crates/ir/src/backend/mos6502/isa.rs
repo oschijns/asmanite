@@ -1,9 +1,8 @@
 //! Instruction set of the NMOS 6502 (official opcodes only) and its encoding
 
-use crate::backend::{
-    BackendError,
-    link::{Addr, Instruction, Symbol, SymbolTable},
-};
+use crate::Addr;
+use crate::backend::BackendError;
+use crate::link::{Instruction, Symbol, SymbolTable};
 use bytes::{BufMut, BytesMut};
 use core::fmt;
 
@@ -208,7 +207,7 @@ impl Target {
     fn get(&self, symbols: &SymbolTable) -> Option<Addr> {
         match self {
             Self::Symbol(symbol) => symbols.get(symbol),
-            Self::Addr(addr) => Some(Addr::from(*addr)),
+            Self::Addr(addr) => Some(*addr as Addr),
         }
     }
 

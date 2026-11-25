@@ -16,12 +16,10 @@ use asmanite_common::{
     primitive::def::U8,
     register::{REGISTERS, RegDef, RegIdent, RegSet},
 };
-use asmanite_ir::inter::{
-    IrFunc, IrProgram,
-    opcode::{
-        Condition, JumpTarget, Label, LabelId, OpBinary, OpBranch, OpCode, OpCompare, OpTransfer,
-        Operand,
-    },
+use asmanite_ir::LabelId;
+use asmanite_ir::intermediate::{
+    Condition, IrFunc, IrProgram, JumpTarget, Label, OpBinary, OpBranch, OpCode, OpCompare,
+    OpTransfer, Operand,
 };
 
 pub fn parse(source: &str) -> Module {

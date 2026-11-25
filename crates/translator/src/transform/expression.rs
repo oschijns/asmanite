@@ -8,10 +8,7 @@ use super::{
 };
 use asmanite_ast::parser::{composite_type::TypeUsed, expression::Expr};
 use asmanite_common::{ToBox, operator::OpType, span::Spanned};
-use asmanite_ir::inter::{
-    Int,
-    opcode::{OpBinary, OpCode, OpUnary, Operand},
-};
+use asmanite_ir::intermediate::{OpBinary, OpCode, OpUnary, Operand};
 
 impl<'g, 'a> FuncLowerer<'g, 'a> {
     /// Lower an expression which must map onto a single operand.
@@ -157,10 +154,13 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                 let Operand::Mem(mut cell) = self.lower_place(&index.expr)? else {
                     return Err(not_assignable());
                 };
-                let elem_size = Int::from(self.element_size(&index.expr)?);
+                let elem_size = self.element_size(&index.expr)?;
 
                 if let Some(value) = self.try_const(&index.index) {
-                    cell.offset += value * elem_size;
+                    let offset = i64::try_from(value).map_err(|_| {
+                        TrsError::new(index.index.span(), TrsErrorKind::NotConstant)
+                    })?;
+                    cell.offset += offset * i64::from(elem_size);
                     Ok(Operand::Mem(cell))
                 } else if let (Expr::Register(reg), 1, None) = (&index.index, elem_size, cell.index)
                 {
@@ -209,12 +209,10 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::transform::{TrsError, TrsErrorKind, transform};
-
-    use asmanite_common::{ToBox, operator::op};
-
     use crate::transform::test_utils::*;
-    use asmanite_ir::inter::opcode::{OpCode, OpUnary, Operand};
+    use crate::transform::{TrsError, TrsErrorKind, transform};
+    use asmanite_common::{ToBox, operator::op};
+    use asmanite_ir::intermediate::{OpCode, OpUnary, Operand};
 
     #[test]
     fn maps_expressions_onto_operands_without_temporaries() {
@@ -231,9 +229,9 @@ mod tests {
         assert_eq!(
             function(&program, "f").body,
             vec![
-                binary(op::ADD, reg("a"), mem("f::v"), Operand::Imm(1)),
-                binary(op::ADD, reg("a"), reg("a"), Operand::Imm(2)),
-                transfer(reg("y"), Operand::Imm(3)),
+                binary(op::ADD, reg("a"), mem("f::v"), Operand::Imm(1u64.into())),
+                binary(op::ADD, reg("a"), reg("a"), Operand::Imm(2u64.into())),
+                transfer(reg("y"), Operand::Imm(3u64.into())),
                 transfer(reg("x"), reg("y")),
                 OpCode::Unary(
                     OpUnary {

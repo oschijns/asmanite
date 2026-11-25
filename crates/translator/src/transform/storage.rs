@@ -17,7 +17,7 @@ use asmanite_common::{
     span::{Span, Spanned},
     symbol_tree::NodeId,
 };
-use asmanite_ir::inter::{IrData, IrStorage};
+use asmanite_ir::intermediate::{IrData, IrStorage};
 
 impl<'a> Globals<'a> {
     /// Pass 2: memory to reserve for a variable declared in a module.
@@ -78,7 +78,7 @@ impl<'a> Globals<'a> {
             MemStorage::In(bank) => Ok(Some(IrStorage::Bank(bank.clone()))),
             MemStorage::At(addr) => self
                 .address(addr, module, locals)
-                .map(|addr| Some(IrStorage::Address(addr))),
+                .map(|addr| Some(IrStorage::Addr(addr))),
         }
     }
 
@@ -112,9 +112,7 @@ impl<'a> Globals<'a> {
     ) -> Result<IrStorage> {
         match storage {
             ParamStorage::In(bank) => Ok(IrStorage::Bank(bank.clone())),
-            ParamStorage::At(addr) => self
-                .address(addr, module, &no_locals)
-                .map(IrStorage::Address),
+            ParamStorage::At(addr) => self.address(addr, module, &no_locals).map(IrStorage::Addr),
             ParamStorage::Stack => Ok(IrStorage::Stack),
             ParamStorage::CompTime => unsupported("compile-time parameters", span),
         }
@@ -128,7 +126,7 @@ mod tests {
     use asmanite_common::ident::Ident;
 
     use crate::transform::test_utils::*;
-    use asmanite_ir::inter::IrStorage;
+    use asmanite_ir::intermediate::IrStorage;
 
     #[test]
     fn requires_explicit_placement_of_variables() {

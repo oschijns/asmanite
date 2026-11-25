@@ -7,6 +7,9 @@ pub mod scope;
 /// Literals
 pub mod literal;
 
+/// Number type used to resolve expressions
+pub mod number;
+
 /// Status flags
 pub mod status;
 

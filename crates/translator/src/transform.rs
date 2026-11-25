@@ -62,7 +62,7 @@ use self::{
     symbols::{Decl, Globals},
 };
 use asmanite_ast::parser::{function::FuncMarker, memory::MemStorage, module::Module};
-use asmanite_ir::inter::{IrData, IrProgram};
+use asmanite_ir::intermediate::{IrData, IrProgram};
 use std::collections::HashMap;
 
 // MARK: Entry point

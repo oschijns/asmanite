@@ -12,10 +12,7 @@ use asmanite_common::{
     path::Path,
     symbol_tree::{NodeId, ROOT},
 };
-use asmanite_ir::inter::{
-    IrFunc, IrStorage,
-    opcode::{OpCode, Operand},
-};
+use asmanite_ir::intermediate::{IrFunc, IrStorage, OpCode, Operand};
 use std::collections::HashMap;
 
 /// Initializer of a static variable, lowered into the startup routine
@@ -83,15 +80,10 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::transform::{TrsError, TrsErrorKind, transform};
-
-    use asmanite_common::{ident::Ident, path::Path, symbol_tree::ROOT};
-
     use crate::transform::test_utils::*;
-    use asmanite_ir::inter::{
-        IrData, IrStorage,
-        opcode::{OpCode, Operand},
-    };
+    use crate::transform::{TrsError, TrsErrorKind, transform};
+    use asmanite_common::{ident::Ident, path::Path, symbol_tree::ROOT};
+    use asmanite_ir::intermediate::{IrData, IrStorage, OpCode, Operand};
 
     #[test]
     fn reserves_statics_and_initializes_them_at_startup() {
@@ -109,7 +101,7 @@ mod tests {
                 IrData {
                     name: Path::from("DEVICE"),
                     size: 1,
-                    storage: IrStorage::Address(0x10),
+                    storage: IrStorage::Addr(0x10),
                 },
                 IrData {
                     name: Path::from("BUFFER"),
@@ -130,7 +122,7 @@ mod tests {
         assert_eq!(
             program.init.body,
             vec![
-                transfer(reg("a"), Operand::Imm(5)),
+                transfer(reg("a"), Operand::Imm(5u64.into())),
                 transfer(mem("DEVICE"), reg("a")),
                 OpCode::Return,
             ]
@@ -152,9 +144,9 @@ mod tests {
         assert_eq!(
             program.init.body,
             vec![
-                transfer(reg("a"), Operand::Imm(1)),
+                transfer(reg("a"), Operand::Imm(1u64.into())),
                 transfer(mem("BASE"), reg("a")),
-                transfer(reg("a"), Operand::Imm(2)),
+                transfer(reg("a"), Operand::Imm(2u64.into())),
                 transfer(mem("f::COUNT"), reg("a")),
                 transfer(reg("x"), mem("f::COUNT")),
                 transfer(mem("f::TOTAL"), reg("x")),

@@ -14,11 +14,11 @@ pub mod isa;
 /// Instruction selection
 mod select;
 
-use super::{
-    Backend, BackendError,
+use crate::{
+    backend::{Backend, BackendError},
+    intermediate::IrProgram,
     link::{self, Image, Layout, MemoryMap, Section},
 };
-use crate::inter::IrProgram;
 use asmanite_common::{primitive::def::U8, register::RegDef};
 use isa::Op;
 
@@ -89,14 +89,11 @@ mod tests {
         *,
     };
     use crate::{
-        backend::link::{Bank, BankKind, Symbol},
-        inter::{
-            IrData, IrFunc, IrStorage,
-            opcode::{
-                Condition, JumpTarget, Label, MemCell, OpBinary, OpBranch, OpCode, OpCompare,
-                OpTransfer, OpUnary, Operand,
-            },
+        intermediate::{
+            Condition, IrData, IrFunc, IrStorage, JumpTarget, Label, MemCell, OpBinary, OpBranch,
+            OpCode, OpCompare, OpTransfer, OpUnary, Operand,
         },
+        link::{Bank, BankKind, Symbol},
     };
     use asmanite_common::{
         ToBox,
@@ -232,7 +229,7 @@ mod tests {
     fn transfers_with_zero_page_and_absolute_modes() {
         let data = vec![var("small", 1, "zp"), var("big", 4, "ram")];
         let body = vec![
-            transfer(reg("a"), Operand::Imm(5)),
+            transfer(reg("a"), Operand::Imm(5u64.into())),
             transfer(mem("small"), reg("a")),
             transfer(reg("x"), mem("big")),
             transfer(indexed("big", 1, "x"), reg("a")),
@@ -255,9 +252,9 @@ mod tests {
         let data = vec![var("total", 1, "zp"), var("other", 1, "ram")];
         let body = vec![
             // total = 3
-            transfer(mem("total"), Operand::Imm(3)),
+            transfer(mem("total"), Operand::Imm(3u64.into())),
             // other = x + 3
-            binary(op::ADD, mem("other"), reg("x"), Operand::Imm(3)),
+            binary(op::ADD, mem("other"), reg("x"), Operand::Imm(3u64.into())),
         ];
         #[rustfmt::skip]
         assert_eq!(code(data, body), vec![
@@ -274,11 +271,21 @@ mod tests {
             // a += x, through the scratch byte
             binary(op::ADD, reg("a"), reg("a"), reg("x")),
             // total += 1
-            binary(op::ADD, mem("total"), mem("total"), Operand::Imm(1)),
+            binary(
+                op::ADD,
+                mem("total"),
+                mem("total"),
+                Operand::Imm(1u64.into()),
+            ),
             // a -' total (with carry)
             binary(op::SUB_C, reg("a"), reg("a"), mem("total")),
             // total <<= 2, in place
-            binary(op::SH_L, mem("total"), mem("total"), Operand::Imm(2)),
+            binary(
+                op::SH_L,
+                mem("total"),
+                mem("total"),
+                Operand::Imm(2u64.into()),
+            ),
             // x = -x
             OpCode::Unary(
                 OpUnary {
@@ -312,11 +319,11 @@ mod tests {
                 .to_box(),
             ),
             // x < 10: loop
-            compare(op::LT, reg("x"), Operand::Imm(10), 0),
+            compare(op::LT, reg("x"), Operand::Imm(10u64.into()), 0),
             // 20 > a, i.e. a < 20
-            compare(op::GT, Operand::Imm(20), reg("a"), 0),
+            compare(op::GT, Operand::Imm(20u64.into()), reg("a"), 0),
             // a > 7, i.e. a >= 8
-            compare(op::GT, reg("a"), Operand::Imm(7), 0),
+            compare(op::GT, reg("a"), Operand::Imm(7u64.into()), 0),
             // a > y: two branches
             compare(op::GT, reg("a"), reg("y"), 0),
         ];

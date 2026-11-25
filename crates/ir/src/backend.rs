@@ -1,15 +1,14 @@
-/// Target-independent layout and linking (shared by every backend)
-pub mod link;
-
 /// MOS 6502 backend
 pub mod mos6502;
 
 /// Sharp SM83 backend
 pub mod sm83;
 
-use crate::inter::IrProgram;
+use crate::Addr;
+use crate::intermediate::IrProgram;
+use crate::link::{Image, Symbol};
+use asmanite_common::number::Number;
 use asmanite_common::{ident::Ident, path::Path};
-use link::{Addr, Image, Symbol};
 
 /// Convert an IR program into a binary image for a given CPU target
 pub trait Backend {
@@ -51,7 +50,7 @@ pub enum BackendError {
     OutOfRange {
         at: Path,
         what: &'static str,
-        value: i64,
+        value: Number,
     },
 
     #[error("in `{at}`: {what} requires a scratch byte in zero page")]

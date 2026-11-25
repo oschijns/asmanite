@@ -2,8 +2,11 @@
 
 use super::function::FuncLowerer;
 use asmanite_common::{ToBox, operator::Operator};
-use asmanite_ir::inter::opcode::{
-    Condition, JumpTarget, Label, LabelId, OpBranch, OpCode, OpCompare, OpTransfer, Operand,
+use asmanite_ir::{
+    LabelId,
+    intermediate::{
+        Condition, JumpTarget, Label, OpBranch, OpCode, OpCompare, OpTransfer, Operand,
+    },
 };
 
 impl<'g, 'a> FuncLowerer<'g, 'a> {

@@ -16,18 +16,15 @@ use super::isa::{
     Mode, Op, Target, opcode,
 };
 use crate::{
-    backend::{
-        BackendError,
-        link::{Item, Section, Symbol, SymbolTable},
+    backend::BackendError,
+    intermediate::{
+        Condition, IrFunc, JumpTarget, Label, MemCell, OpBinary, OpCode, OpCompare, OpUnary,
+        Operand,
     },
-    inter::{
-        Int, IrFunc,
-        opcode::{
-            Condition, JumpTarget, Label, MemCell, OpBinary, OpCode, OpCompare, OpUnary, Operand,
-        },
-    },
+    link::{Item, Section, Symbol, SymbolTable},
 };
 use asmanite_common::{
+    number::Number,
     operator::{OpType, Operator},
     path::Path,
     register::RegIdent,
@@ -209,7 +206,7 @@ impl Selector<'_> {
         })
     }
 
-    fn out_of_range(&self, what: &'static str, value: i64) -> BackendError {
+    fn out_of_range(&self, what: &'static str, value: Number) -> BackendError {
         BackendError::OutOfRange {
             at: self.func.clone(),
             what,
@@ -243,12 +240,8 @@ impl Selector<'_> {
     }
 
     /// Signed or unsigned byte
-    fn imm(&self, value: Int) -> Result<u8> {
-        if (-128..=255).contains(&value) {
-            Ok(value as u8)
-        } else {
-            Err(self.out_of_range("an 8-bit value", value))
-        }
+    fn imm(&self, value: Number) -> Result<u8> {
+        u8::try_from(value).map_err(|_| self.out_of_range("an 8-bits value", value))
     }
 
     fn reg(&self, reg: &RegIdent) -> Result<Reg> {
@@ -266,7 +259,8 @@ impl Selector<'_> {
         let size = self.symbols.size(&symbol).unwrap_or(1);
 
         let addr = base as i64 + cell.offset;
-        let addr = u16::try_from(addr).map_err(|_| self.out_of_range("a 16-bit address", addr))?;
+        let addr =
+            u16::try_from(addr).map_err(|_| self.out_of_range("a 16-bit address", addr.into()))?;
 
         let index = match cell.index {
             None => None,
@@ -307,7 +301,7 @@ impl Selector<'_> {
             JumpTarget::Label(label) => Ok(Dest::Addr(Target::Symbol(self.label(label)))),
             JumpTarget::Address(addr) => u16::try_from(*addr)
                 .map(|addr| Dest::Addr(Target::Addr(addr)))
-                .map_err(|_| self.out_of_range("a 16-bit address", *addr as i64)),
+                .map_err(|_| self.out_of_range("a 16-bit address", (*addr).into())),
             JumpTarget::Indirect(pointer) => match self.val(pointer)? {
                 Val::Mem(Loc {
                     addr, index: None, ..

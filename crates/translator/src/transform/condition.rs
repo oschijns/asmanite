@@ -1,16 +1,19 @@
 //! Lowering of conditions into conditional branches (with short-circuit)
 
-use super::{error::Result, function::FuncLowerer};
+use super::{constant::is_true, error::Result, function::FuncLowerer};
 use asmanite_ast::parser::expression::Expr;
 use asmanite_common::operator::{OpType, Operator, op};
-use asmanite_ir::inter::opcode::{Condition, LabelId, Operand};
+use asmanite_ir::{
+    LabelId,
+    intermediate::{Condition, Operand},
+};
 
 impl<'g, 'a> FuncLowerer<'g, 'a> {
     /// Branch to `target` when `expr` evaluates to `when`, fall through otherwise.
     /// `&&` and `||` are short-circuited.
     pub fn lower_cond(&mut self, expr: &'a Expr, when: bool, target: LabelId) -> Result<()> {
         if let Some(value) = self.try_const(expr) {
-            if (value != 0) == when {
+            if is_true(value) == when {
                 self.jump(target);
             }
             return Ok(());
@@ -66,7 +69,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
             _ => {
                 let value = self.lower_operand(expr)?;
                 let op = if when { op::DIFF } else { op::EQ };
-                self.compare(op, value, Operand::Imm(0), target);
+                self.compare(op, value, Operand::Imm(0u64.into()), target);
                 Ok(())
             }
         }
@@ -85,7 +88,7 @@ mod tests {
     use asmanite_common::{operator::op, path::Path};
 
     use crate::transform::test_utils::*;
-    use asmanite_ir::inter::opcode::{Label, OpCode, Operand};
+    use asmanite_ir::intermediate::{Label, OpCode, Operand};
 
     #[test]
     fn lowers_labeled_loops_and_short_circuit_conditions() {
@@ -105,8 +108,8 @@ mod tests {
                 OpCode::Label(Label::Named(Path::from("f::outer"))),
                 label(1),
                 label(3),
-                branch_cmp(op::G_EQ, reg("a"), Operand::Imm(10), 4),
-                branch_cmp(op::EQ, reg("x"), Operand::Imm(0), 4),
+                branch_cmp(op::G_EQ, reg("a"), Operand::Imm(10u64.into()), 4),
+                branch_cmp(op::EQ, reg("x"), Operand::Imm(0u64.into()), 4),
                 jump(2),
                 jump(3),
                 label(4),

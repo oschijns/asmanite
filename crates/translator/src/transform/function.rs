@@ -14,9 +14,9 @@ use asmanite_ast::parser::{
     memory::{ParamDecl, ParamStorage, ParamType, ReturnType},
 };
 use asmanite_common::{ident::Ident, path::Path, span::Span, symbol_tree::NodeId};
-use asmanite_ir::inter::{
-    IrData, IrFunc, IrStorage,
-    opcode::{Label, LabelId, OpCode, Operand},
+use asmanite_ir::{
+    LabelId,
+    intermediate::{IrData, IrFunc, IrStorage, Label, OpCode, Operand},
 };
 use std::collections::{HashMap, HashSet};
 
@@ -305,7 +305,7 @@ mod tests {
     use asmanite_common::{ident::Ident, path::Path};
 
     use crate::transform::test_utils::*;
-    use asmanite_ir::inter::IrStorage;
+    use asmanite_ir::intermediate::IrStorage;
 
     #[test]
     fn places_functions_explicitly_or_through_bank_blocks() {
@@ -321,7 +321,7 @@ mod tests {
 
         let storage = |name| function(&program, name).storage.clone();
         assert_eq!(storage("header"), IrStorage::Bank(Ident::new("code")));
-        assert_eq!(storage("fixed"), IrStorage::Address(0x8000));
+        assert_eq!(storage("fixed"), IrStorage::Addr(0x8000));
         // inline functions produce no code of their own
         assert!(
             program

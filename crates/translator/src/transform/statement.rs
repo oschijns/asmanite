@@ -20,7 +20,10 @@ use asmanite_common::{
     operator::{OpType, op},
     span::Spanned,
 };
-use asmanite_ir::inter::opcode::{JumpTarget, Label, LabelId, OpBinary, OpCode, Operand};
+use asmanite_ir::{
+    LabelId,
+    intermediate::{JumpTarget, Label, OpBinary, OpCode, Operand},
+};
 use std::collections::{HashMap, HashSet};
 
 /// Loop currently being lowered, targeted by `break` and `continue`
@@ -231,7 +234,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                 let last = self.lower_operand(&header.end)?;
                 let step = match &header.step {
                     Some(step) => self.lower_operand(step)?,
-                    None => Operand::Imm(1),
+                    None => Operand::Imm(1u64.into()),
                 };
 
                 // TODO: an inclusive range ending on the maximum value of the
@@ -304,13 +307,9 @@ pub fn collect_labels(block: &[Statement], labels: &mut HashSet<Ident>) {
 #[cfg(test)]
 mod tests {
 
-    use asmanite_common::{ToBox, ident::Ident, operator::op, path::Path};
-
     use crate::transform::test_utils::*;
-    use asmanite_ir::inter::{
-        IrData, IrStorage,
-        opcode::{OpBinary, OpCode, Operand},
-    };
+    use asmanite_common::{ToBox, ident::Ident, operator::op, path::Path};
+    use asmanite_ir::intermediate::{IrData, IrStorage, OpBinary, OpCode, Operand};
 
     #[test]
     fn lowers_if_and_return_into_branches() {
@@ -336,8 +335,8 @@ mod tests {
         assert_eq!(
             func.body,
             vec![
-                branch_cmp(op::DIFF, mem("check::value"), Operand::Imm(0), 2),
-                transfer(reg("a"), Operand::Imm(1)),
+                branch_cmp(op::DIFF, mem("check::value"), Operand::Imm(0u64.into()), 2),
+                transfer(reg("a"), Operand::Imm(1u64.into())),
                 jump(0),
                 jump(1),
                 label(2),
@@ -360,9 +359,9 @@ mod tests {
         assert_eq!(
             func.body,
             vec![
-                transfer(mem("f::i"), Operand::Imm(0)),
+                transfer(mem("f::i"), Operand::Imm(0u64.into())),
                 label(1),
-                branch_cmp(op::G_EQ, mem("f::i"), Operand::Imm(4), 2),
+                branch_cmp(op::G_EQ, mem("f::i"), Operand::Imm(4u64.into()), 2),
                 transfer(reg("a"), mem("f::i")),
                 label(3),
                 OpCode::Binary(
@@ -370,7 +369,7 @@ mod tests {
                         op: op::ADD,
                         dst: mem("f::i"),
                         lhs: mem("f::i"),
-                        rhs: Operand::Imm(2),
+                        rhs: Operand::Imm(2u64.into()),
                     }
                     .to_box()
                 ),
