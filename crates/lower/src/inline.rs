@@ -3,54 +3,15 @@
 use super::{
     error::{LowError, LowErrorKind, LowResult},
     function::{FuncLowerer, child, is_comptime, param_operand},
-    scope::Local,
-    statement::{LoopFrame, collect_labels},
+    statement::collect_labels,
 };
-use crate::symbol::{NodeId, SymbolData};
+use crate::symbol::SymbolData;
 use asmanite_ast::parser::function::FuncDecl;
-use asmanite_common::{ident::Ident, path::Path, span::Span};
-use asmanite_ir::{
-    LabelId,
-    intermediate::{IrData, Operand},
-};
-use std::collections::{HashMap, HashSet};
+use asmanite_common::{ident::Ident, span::Span};
+use asmanite_ir::intermediate::Operand;
+use std::collections::HashMap;
 
-/// State of the function being lowered, saved while an inline function is expanded
-pub struct Context<'a> {
-    /// Module of the caller, from which its names resolve
-    pub(crate) module: NodeId,
-
-    /// Absolute path of the caller (prefix of its parameters and locals)
-    pub(crate) path: Path,
-
-    /// Prefix of the user labels of the caller
-    pub(crate) label_path: Path,
-
-    /// Lexical scopes of the caller, hidden from the body of the inline function
-    pub(crate) scopes: Vec<HashMap<Ident, Local<'a>>>,
-
-    /// User labels defined in the caller
-    pub(crate) labels: HashSet<Ident>,
-
-    /// Loops of the caller enclosing the call: `break` and `continue`
-    /// in the inline function cannot target them
-    pub(crate) loops: Vec<LoopFrame>,
-
-    /// Where the return value of the caller goes
-    pub(crate) ret: Option<Operand>,
-
-    /// Label placed right before the final `Return` of the caller
-    pub(crate) exit: LabelId,
-
-    /// Memory cells owned by the caller. The cells declared while expanding
-    /// the inline function go into the program data instead.
-    pub(crate) locals: Vec<IrData>,
-
-    /// Is the caller the startup routine ?
-    pub(crate) startup: bool,
-}
-
-impl<'g, 'a> FuncLowerer<'g, 'a> {
+impl<'g, 'a, 's> FuncLowerer<'g, 'a, 's> {
     /// Replace a call to an inline function by the body of the function.
     /// The runtime arguments are written into the parameters like for a call.
     pub fn expand_inline(
@@ -60,7 +21,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
         args: Vec<Operand>,
         span: Span,
     ) -> LowResult<Option<Operand>> {
-        if self.inline_stack.contains(symbol.path()) {
+        if self.shared.inline_stack.contains(symbol.path()) {
             Err(LowError::rec_inline(span, symbol.path().clone()))
         } else if func.generics.is_some() {
             Err(LowError::unsupported(func.span, "generic functions"))
@@ -77,7 +38,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                 }
             }
 
-            // Switch to the context of the inline function
+            // Prefix of the user labels of this expansion
             let name = symbol
                 .path()
                 .as_slice()
@@ -85,50 +46,41 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                 .expect("a path is never empty");
             let label_path = child(
                 &self.label_path,
-                Ident::new(&format!("{name}.{}", self.inline_count)),
+                Ident::new(&format!("{name}.{}", self.shared.inline_count)),
             );
-            self.inline_count += 1;
+            self.shared.inline_count += 1;
 
-            // TODO: REWORK
+            // The inline function is lowered on its own, like a function,
+            // but its code and labels go into the output of the caller
+            let mut callee = FuncLowerer::new(
+                self.globals,
+                &mut *self.shared,
+                self.globals.module_of(symbol),
+                symbol.path().clone(),
+            );
+            callee.label_path = label_path;
+            let ret = callee.lower_inline_body(func, &args);
 
-            let caller = Context {
-                module: core::mem::replace(&mut self.module, self.globals.module_of(symbol)),
-                path: core::mem::replace(&mut self.path, symbol.path().clone()),
-                label_path: core::mem::replace(&mut self.label_path, label_path),
-                scopes: core::mem::take(&mut self.scopes),
-                labels: core::mem::take(&mut self.labels),
-                loops: core::mem::take(&mut self.loops),
-                ret: self.ret.take(),
-                exit: self.exit,
-                locals: core::mem::take(&mut self.locals),
-                startup: core::mem::replace(&mut self.startup, false),
-            };
-
-            // Lower the body: `return` jumps right after the expansion
-            self.inline_stack.push(symbol.path().clone());
-            self.scopes.push(HashMap::new());
-            self.declare_signature(func, Some(&args));
-            collect_labels(&func.block, &mut self.labels);
-            self.exit = self.new_label();
-            self.lower_block(&func.block);
-            self.place_label(self.exit);
-            self.inline_stack.pop();
-            let ret = self.ret.take();
-
-            // Back to the caller
-            let cells = core::mem::replace(&mut self.locals, caller.locals);
-            self.inline_data.extend(cells);
-            self.module = caller.module;
-            self.path = caller.path;
-            self.label_path = caller.label_path;
-            self.scopes = caller.scopes;
-            self.labels = caller.labels;
-            self.loops = caller.loops;
-            self.ret = caller.ret;
-            self.exit = caller.exit;
-            self.startup = caller.startup;
+            // Its memory cells are reserved once for every expansion
+            let cells = callee.locals;
+            self.shared.inline_data.extend(cells);
             Ok(ret)
         }
+    }
+
+    /// Lower the body of an inline function, `args` being the arguments of the call.
+    /// `return` jumps right after the expansion.
+    /// Return where the result of the call is.
+    fn lower_inline_body(&mut self, func: &'a FuncDecl, args: &[Operand]) -> Option<Operand> {
+        self.shared.inline_stack.push(self.path.clone());
+        self.scopes.push(HashMap::new());
+        self.declare_signature(func, Some(args));
+        collect_labels(&func.block, &mut self.labels);
+        self.exit = self.new_label();
+        self.lower_block(&func.block);
+        self.place_label(self.exit);
+        self.shared.inline_stack.pop();
+        self.ret.take()
     }
 }
 

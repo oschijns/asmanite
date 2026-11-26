@@ -9,7 +9,7 @@ use asmanite_ast::parser::{composite_type::TypeUsed, expression::Expr};
 use asmanite_common::{ToBox, operator::OpType, span::Spanned};
 use asmanite_ir::intermediate::{OpBinary, OpCode, OpUnary, Operand};
 
-impl<'g, 'a> FuncLowerer<'g, 'a> {
+impl<'g, 'a, 's> FuncLowerer<'g, 'a, 's> {
     /// Lower an expression which must map onto a single operand.
     ///
     /// Assignments and calls are operands: their value is their destination

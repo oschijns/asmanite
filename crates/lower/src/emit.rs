@@ -9,16 +9,16 @@ use asmanite_ir::{
     },
 };
 
-impl<'g, 'a> FuncLowerer<'g, 'a> {
+impl<'g, 'a, 's> FuncLowerer<'g, 'a, 's> {
     #[inline]
     pub fn emit(&mut self, opcode: OpCode) {
-        self.body.push(opcode);
+        self.shared.body.push(opcode);
     }
 
     #[inline]
     pub fn new_label(&mut self) -> LabelId {
-        let label = self.next_label;
-        self.next_label += 1;
+        let label = self.shared.next_label;
+        self.shared.next_label += 1;
         label
     }
 

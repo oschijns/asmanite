@@ -2,14 +2,14 @@
 
 use super::{
     error::LowError,
-    function::{FuncLowerer, Lowered},
+    function::{FuncLowerer, FuncSharedCtx, Lowered},
     scope::Local,
 };
 use crate::symbol::{NodeId, ROOT, SymbolTree};
 use asmanite_ast::parser::expression::Expr;
 use asmanite_common::{ident::Ident, path::Path};
-use asmanite_ir::intermediate::{IrFunc, IrStorage, OpCode, Operand};
-use std::collections::HashMap;
+use asmanite_ir::intermediate::{IrData, IrFunc, IrStorage, OpCode, Operand};
+use std::collections::{HashMap, HashSet};
 
 /// Initializer of a static variable, lowered into the startup routine
 pub struct StaticInit<'a> {
@@ -44,50 +44,76 @@ impl<'a> StaticInit<'a> {
     }
 }
 
-impl<'g, 'a> FuncLowerer<'g, 'a> {
-    /// Lowerer for the startup routine
-    pub fn startup(globals: &'g SymbolTree<'a>, root: NodeId) -> Self {
-        let mut lowerer = Self::new(globals, root, Path::from(ROOT));
-        lowerer.startup = true;
-        lowerer
+/// Startup routine being lowered: one initializer after the other
+pub struct Startup<'g, 'a> {
+    /// Every symbol declared in the program
+    globals: &'g SymbolTree<'a>,
+
+    /// Output of the routine, shared by the initializers
+    shared: FuncSharedCtx<'a>,
+
+    /// Memory cells owned by the routine
+    locals: Vec<IrData>,
+
+    /// Statics already initialized
+    initialized: HashSet<Path>,
+}
+
+impl<'g, 'a> Startup<'g, 'a> {
+    /// Empty startup routine
+    pub fn new(globals: &'g SymbolTree<'a>) -> Self {
+        Self {
+            globals,
+            shared: FuncSharedCtx::default(),
+            locals: Vec::new(),
+            initialized: HashSet::new(),
+        }
     }
 
-    /// Startup routine: compute the initial value of a static variable at runtime
+    /// Compute the initial value of a static variable at runtime
     pub fn lower_static_init(&mut self, init: StaticInit<'a>) {
         // A static declared in an inline function is found at each expansion
         if !self.initialized.insert(init.target.clone()) {
             return;
         }
         // The initializer resolves names from where the static is declared
-        self.module = init.module;
-        self.scopes = vec![init.scope];
-        if let Err(error) = self.lower_into(Operand::mem(init.target), init.value) {
-            self.errors.push(error);
+        let mut lowerer = FuncLowerer::new(
+            self.globals,
+            &mut self.shared,
+            init.module,
+            Path::from(ROOT),
+        );
+        lowerer.startup = true;
+        lowerer.scopes.push(init.scope);
+        if let Err(error) = lowerer.lower_into(Operand::mem(init.target), init.value) {
+            lowerer.shared.errors.push(error);
         }
+        let cells = lowerer.locals;
+        self.locals.extend(cells);
     }
 
     /// Finalize the startup routine.
     /// Return every error found in the initializers if it could not be lowered.
-    pub fn finish_init(mut self) -> Result<Lowered<'a>, Vec<LowError>> {
+    pub fn finish(mut self) -> Result<Lowered<'a>, Vec<LowError>> {
         // Statics declared in inline functions expanded by the startup routine
-        while let Some(init) = self.static_inits.pop() {
+        while let Some(init) = self.shared.static_inits.pop() {
             self.lower_static_init(init);
         }
-        self.emit(OpCode::Return);
-        if !self.errors.is_empty() {
-            return Err(self.errors);
+        self.shared.body.push(OpCode::Return);
+        if !self.shared.errors.is_empty() {
+            return Err(self.shared.errors);
         }
         Ok(Lowered {
             func: IrFunc {
-                name: self.path,
+                name: Path::from(ROOT),
                 storage: IrStorage::Startup,
                 params: Vec::new(),
                 ret: None,
                 locals: self.locals,
-                body: self.body,
+                body: self.shared.body,
             },
             static_inits: Vec::new(),
-            inline_data: self.inline_data,
+            inline_data: self.shared.inline_data,
         })
     }
 }

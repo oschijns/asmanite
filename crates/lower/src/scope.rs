@@ -45,7 +45,7 @@ pub enum LocalKind {
     Runtime,
 }
 
-impl<'g, 'a> FuncLowerer<'g, 'a> {
+impl<'g, 'a, 's> FuncLowerer<'g, 'a, 's> {
     pub fn bind(
         &mut self,
         ident: Ident,
@@ -128,12 +128,9 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                 };
                 match (&var.assign_expr, kind) {
                     // A static is initialized once, by the startup routine
-                    (Some(value), LocalKind::Static) => self.static_inits.push(StaticInit::new(
-                        name.clone(),
-                        value,
-                        self.module,
-                        self.visible_locals(),
-                    )),
+                    (Some(value), LocalKind::Static) => self.shared.static_inits.push(
+                        StaticInit::new(name.clone(), value, self.module, self.visible_locals()),
+                    ),
                     // A var is initialized each time it is declared
                     (Some(value), _) => self.lower_into(operand.clone(), value)?,
                     (None, _) => {}

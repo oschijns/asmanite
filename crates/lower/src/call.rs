@@ -8,7 +8,7 @@ use crate::{
 use asmanite_ast::parser::{expression::FunctionCall, function::FuncMarker};
 use asmanite_ir::intermediate::{OpCode, Operand};
 
-impl<'g, 'a> FuncLowerer<'g, 'a> {
+impl<'g, 'a, 's> FuncLowerer<'g, 'a, 's> {
     /// Lower a function call.
     /// Return the location of the result, or `None` if the function returns nothing.
     pub fn lower_call(&mut self, call: &'a FunctionCall) -> LowResult<Option<Operand>> {

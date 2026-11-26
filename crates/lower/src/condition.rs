@@ -8,7 +8,7 @@ use asmanite_ir::{
     intermediate::{Condition, Operand},
 };
 
-impl<'g, 'a> FuncLowerer<'g, 'a> {
+impl<'g, 'a, 's> FuncLowerer<'g, 'a, 's> {
     /// Branch to `target` when `expr` evaluates to `when`, fall through otherwise.
     /// `&&` and `||` are short-circuited.
     pub fn lower_cond(&mut self, expr: &'a Expr, when: bool, target: LabelId) -> LowResult<()> {

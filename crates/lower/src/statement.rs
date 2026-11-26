@@ -39,12 +39,12 @@ pub struct LoopFrame {
     pub(crate) id_continue: LabelId,
 }
 
-impl<'g, 'a> FuncLowerer<'g, 'a> {
+impl<'g, 'a, 's> FuncLowerer<'g, 'a, 's> {
     pub fn lower_block(&mut self, block: &'a [Statement]) {
         self.scopes.push(HashMap::new());
         for statement in block {
             if let Err(error) = self.lower_statement(statement) {
-                self.errors.push(error);
+                self.shared.errors.push(error);
             }
         }
         self.scopes.pop();
@@ -62,7 +62,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
             StmtInner::Bank(bank) => {
                 for var in bank.variables.iter() {
                     if let Err(error) = self.declare_local(var, Some(bank.ident.clone())) {
-                        self.errors.push(error);
+                        self.shared.errors.push(error);
                     }
                 }
                 Ok(())

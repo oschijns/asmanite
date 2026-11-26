@@ -62,8 +62,8 @@ use crate::{
 };
 use asmanite_ast::parser::{function::FuncMarker, memory::MemStorage, module::Module};
 use asmanite_ir::intermediate::{IrData, IrProgram};
-use function::FuncLowerer;
-use startup::StaticInit;
+use function::lower_function;
+use startup::{Startup, StaticInit};
 use std::collections::HashMap;
 
 // MARK: Entry point
@@ -83,7 +83,7 @@ pub fn translate(root: &Module) -> Result<IrProgram, Box<[LowError]>> {
     // Pass 2: constants and static variables.
     // The initializers of the statics are computed at runtime, by the startup routine.
     let mut data = Vec::new();
-    let mut init = FuncLowerer::startup(&symbol_tree, root_node);
+    let mut init = Startup::new(&symbol_tree);
     for symbol in symbol_tree.symbols() {
         if let SymbolType::Var(var) = symbol.symbol_type {
             match symbol_tree.global_data(symbol, var) {
@@ -118,12 +118,14 @@ pub fn translate(root: &Module) -> Result<IrProgram, Box<[LowError]>> {
             }
             continue;
         }
-        let lowerer = FuncLowerer::new(
+        let lowered = lower_function(
             &symbol_tree,
             symbol_tree.module_of(symbol),
             symbol.path().clone(),
+            func,
+            symbol.bank.as_ref(),
         );
-        match lowerer.lower(func, symbol.bank.as_ref()) {
+        match lowered {
             Ok(lowered) => {
                 local_inits.extend(lowered.static_inits);
                 push_new_data(&mut data, lowered.inline_data);
@@ -137,7 +139,7 @@ pub fn translate(root: &Module) -> Result<IrProgram, Box<[LowError]>> {
     for static_init in local_inits {
         init.lower_static_init(static_init);
     }
-    let init = match init.finish_init() {
+    let init = match init.finish() {
         Ok(lowered) => {
             push_new_data(&mut data, lowered.inline_data);
             Some(lowered.func)
