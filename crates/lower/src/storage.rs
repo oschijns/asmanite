@@ -1,6 +1,6 @@
 //! Placement and size of the memory cells
 
-use super::error::{LowError, LowErrorKind, Result, unsupported};
+use super::error::{LowError, LowErrorKind, LowResult};
 use crate::symbol::{LocalConsts, NodeId, SymbolData, SymbolTree, no_locals};
 use asmanite_ast::{
     lexer::atom::VarType,
@@ -19,7 +19,11 @@ impl<'a> SymbolTree<'a> {
     /// Pass 2: memory to reserve for a variable declared in a module.
     /// Only `const` and `static` can be declared there.
     /// Constants do not need memory: they are replaced by their value.
-    pub fn global_data(&self, symbol: &SymbolData<'a>, var: &'a VarDecl) -> Result<Option<IrData>> {
+    pub fn global_data(
+        &self,
+        symbol: &SymbolData<'a>,
+        var: &'a VarDecl,
+    ) -> LowResult<Option<IrData>> {
         let module = self.module_of(symbol);
         match var.var_type {
             VarType::Const => {
@@ -36,17 +40,14 @@ impl<'a> SymbolTree<'a> {
                 self.size_of(&var.type_used, module, &no_locals)?,
                 self.var_storage(var, module, &no_locals, symbol.bank.as_ref())?,
             ))),
-            VarType::Var | VarType::Let | VarType::Stack => Err(LowError::new(
-                var.span,
-                LowErrorKind::NotInModule {
-                    var_type: var.var_type.into(),
-                },
-            )),
+            VarType::Var | VarType::Let | VarType::Stack => {
+                Err(LowError::not_in_mod(var.span, var.var_type.into()))
+            }
         }
     }
 
     /// Size in bytes of a type
-    pub fn size_of(&self, ty: &TypeUsed, module: NodeId, locals: LocalConsts) -> Result<u32> {
+    pub fn size_of(&self, ty: &TypeUsed, module: NodeId, locals: LocalConsts) -> LowResult<u32> {
         match ty {
             TypeUsed::Prim(prim) => Ok(u32::from(prim.atom.size)),
             TypeUsed::Array(array) => {
@@ -58,7 +59,7 @@ impl<'a> SymbolTree<'a> {
                     .ok_or(LowError::new(array.size.span(), LowErrorKind::NotConstant))
             }
             // TODO: struct/union/enum layouts, named types, tuples, pointers
-            _ => unsupported("this kind of type", ty.span()),
+            _ => Err(LowError::unsupported(ty.span(), "this kind of type")),
         }
     }
 
@@ -68,7 +69,7 @@ impl<'a> SymbolTree<'a> {
         storage: &MemStorage,
         module: NodeId,
         locals: LocalConsts,
-    ) -> Result<Option<IrStorage>> {
+    ) -> LowResult<Option<IrStorage>> {
         match storage {
             MemStorage::Undefined => Ok(None),
             MemStorage::In(bank) => Ok(Some(IrStorage::Bank(bank.clone()))),
@@ -86,17 +87,10 @@ impl<'a> SymbolTree<'a> {
         module: NodeId,
         locals: LocalConsts,
         bank: Option<&Ident>,
-    ) -> Result<IrStorage> {
+    ) -> LowResult<IrStorage> {
         self.mem_storage(&var.storage, module, locals)?
             .or_else(|| bank.map(|bank| IrStorage::Bank(bank.clone())))
-            .ok_or_else(|| {
-                LowError::new(
-                    var.span,
-                    LowErrorKind::MissingStorage {
-                        ident: var.ident.clone(),
-                    },
-                )
-            })
+            .ok_or_else(|| LowError::missing_storage(var.span, var.ident.clone()))
     }
 
     /// Placement of a parameter or a return value
@@ -105,12 +99,12 @@ impl<'a> SymbolTree<'a> {
         storage: &ParamStorage,
         module: NodeId,
         span: Span,
-    ) -> Result<IrStorage> {
+    ) -> LowResult<IrStorage> {
         match storage {
             ParamStorage::In(bank) => Ok(IrStorage::Bank(bank.clone())),
             ParamStorage::At(addr) => self.address(addr, module, &no_locals).map(IrStorage::Addr),
             ParamStorage::Stack => Ok(IrStorage::Stack),
-            ParamStorage::CompTime => unsupported("compile-time parameters", span),
+            ParamStorage::CompTime => Err(LowError::unsupported(span, "compile-time parameters")),
         }
     }
 }

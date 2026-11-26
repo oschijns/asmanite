@@ -1,7 +1,7 @@
 //! Lowering of function calls
 
 use crate::{
-    error::{LowError, LowErrorKind, Result},
+    error::{LowError, LowResult},
     function::{FuncLowerer, param_operand, return_operand},
     symbol::{SymbolType, no_locals},
 };
@@ -11,30 +11,23 @@ use asmanite_ir::intermediate::{OpCode, Operand};
 impl<'g, 'a> FuncLowerer<'g, 'a> {
     /// Lower a function call.
     /// Return the location of the result, or `None` if the function returns nothing.
-    pub fn lower_call(&mut self, call: &'a FunctionCall) -> Result<Option<Operand>> {
+    pub fn lower_call(&mut self, call: &'a FunctionCall) -> LowResult<Option<Operand>> {
         let symbol = self.globals.resolve(self.module, &call.callee, call.span)?;
         let SymbolType::Func(func) = symbol.symbol_type else {
-            return Err(LowError::new(
+            return Err(LowError::wrong_kind(
                 call.span,
-                LowErrorKind::WrongKind {
-                    path: call.callee.clone(),
-                    expected: "function",
-                },
+                call.callee.clone(),
+                "function",
             ));
         };
 
         let params = &func.parameters;
-        let arg_count_error = || {
-            LowError::new(
-                call.span,
-                LowErrorKind::ArgCount {
-                    expected: params.len(),
-                    found: call.args.len(),
-                },
-            )
-        };
         if call.args.len() > params.len() {
-            return Err(arg_count_error());
+            return Err(LowError::arg_count(
+                call.span,
+                params.len(),
+                call.args.len(),
+            ));
         }
 
         // Evaluate every argument before writing any parameter,
@@ -51,7 +44,13 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                     &no_locals,
                     &mut Vec::new(),
                 )?),
-                (None, None) => return Err(arg_count_error()),
+                (None, None) => {
+                    return Err(LowError::arg_count(
+                        call.span,
+                        params.len(),
+                        call.args.len(),
+                    ));
+                }
             };
             values.push(value);
         }

@@ -68,7 +68,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
 
     /// Finalize the startup routine.
     /// Return every error found in the initializers if it could not be lowered.
-    pub fn finish_init(mut self) -> core::result::Result<Lowered<'a>, Vec<LowError>> {
+    pub fn finish_init(mut self) -> Result<Lowered<'a>, Vec<LowError>> {
         // Statics declared in inline functions expanded by the startup routine
         while let Some(init) = self.static_inits.pop() {
             self.lower_static_init(init);

@@ -1,6 +1,6 @@
 //! Lowering of conditions into conditional branches (with short-circuit)
 
-use super::{error::Result, function::FuncLowerer};
+use super::{error::LowResult, function::FuncLowerer};
 use asmanite_ast::parser::expression::Expr;
 use asmanite_common::operator::{OpType, Operator, op};
 use asmanite_ir::{
@@ -11,13 +11,15 @@ use asmanite_ir::{
 impl<'g, 'a> FuncLowerer<'g, 'a> {
     /// Branch to `target` when `expr` evaluates to `when`, fall through otherwise.
     /// `&&` and `||` are short-circuited.
-    pub fn lower_cond(&mut self, expr: &'a Expr, when: bool, target: LabelId) -> Result<()> {
+    pub fn lower_cond(&mut self, expr: &'a Expr, when: bool, target: LabelId) -> LowResult<()> {
         if let Some(value) = self.try_const(expr) {
             if value.is_true() == when {
                 self.jump(target);
             }
             return Ok(());
         }
+
+        // TODO: REWORK
 
         match expr {
             Expr::Group(group) => self.lower_cond(&group.atom, when, target),

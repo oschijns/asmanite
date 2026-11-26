@@ -2,7 +2,7 @@
 //! (blocks, `if`, `switch`, loops, `break`/`continue`, `goto`, `return`)
 
 use super::{
-    error::{LowError, LowErrorKind, Result, unsupported},
+    error::{LowError, LowErrorKind, LowResult},
     function::{FuncLowerer, child},
     scope::LocalKind,
 };
@@ -28,8 +28,14 @@ use std::collections::{HashMap, HashSet};
 
 /// Loop currently being lowered, targeted by `break` and `continue`
 pub struct LoopFrame {
+    /// User label of the loop (`'label: loop ...`), targeted by `break 'label`
     pub(crate) label: Option<Ident>,
+
+    /// Label right after the loop, where `break` jumps
     pub(crate) id_break: LabelId,
+
+    /// Label of the next iteration, where `continue` jumps
+    /// (the step of a `for` loop, the condition of a `do while` loop, ...)
     pub(crate) id_continue: LabelId,
 }
 
@@ -44,7 +50,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
         self.scopes.pop();
     }
 
-    pub fn lower_statement(&mut self, statement: &'a Statement) -> Result<()> {
+    pub fn lower_statement(&mut self, statement: &'a Statement) -> LowResult<()> {
         if let Some(label) = &statement.label {
             let path = child(&self.label_path, label.clone());
             self.emit(OpCode::Label(Label::Named(path)));
@@ -63,7 +69,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
             }
             StmtInner::Var(var) => self.declare_local(var, None),
             StmtInner::Instr(instr) => self.lower_instr(&instr.expr),
-            StmtInner::Defer(defer) => unsupported("`defer`", defer.span),
+            StmtInner::Defer(defer) => Err(LowError::unsupported(defer.span, "`defer`")),
             StmtInner::If(if_else) => self.lower_if(if_else),
             StmtInner::Switch(switch) => self.lower_switch(switch),
             StmtInner::Loop(loop_stmt) => self.lower_loop(loop_stmt, statement.label.clone()),
@@ -74,14 +80,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                         .iter()
                         .rev()
                         .find(|frame| frame.label.as_ref() == Some(label))
-                        .ok_or_else(|| {
-                            LowError::new(
-                                ctrl.span,
-                                LowErrorKind::UnknownLabel {
-                                    label: label.clone(),
-                                },
-                            )
-                        })?,
+                        .ok_or_else(|| LowError::unknown_label(ctrl.span, label.clone()))?,
                     None => self
                         .loops
                         .last()
@@ -95,27 +94,18 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                 Ok(())
             }
             StmtInner::Goto(goto) => {
-                if !self.labels.contains(&goto.label) {
-                    return Err(LowError::new(
-                        goto.span,
-                        LowErrorKind::UnknownLabel {
-                            label: goto.label.clone(),
-                        },
-                    ));
+                if self.labels.contains(&goto.label) {
+                    let path = child(&self.label_path, goto.label.clone());
+                    self.emit(OpCode::Jump(JumpTarget::Label(Label::Named(path))));
+                    Ok(())
+                } else {
+                    Err(LowError::unknown_label(goto.span, goto.label.clone()))
                 }
-                let path = child(&self.label_path, goto.label.clone());
-                self.emit(OpCode::Jump(JumpTarget::Label(Label::Named(path))));
-                Ok(())
             }
             StmtInner::Return(ret) => {
                 if let Some(value) = &ret.value {
                     let Some(dst) = self.ret.clone() else {
-                        return Err(LowError::new(
-                            ret.span,
-                            LowErrorKind::NoReturnValue {
-                                path: self.path.clone(),
-                            },
-                        ));
+                        return Err(LowError::no_return_value(ret.span, self.path.clone()));
                     };
                     self.lower_into(dst, value)?;
                 }
@@ -126,7 +116,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
     }
 
     /// Lower an expression used as a statement: it must do something
-    pub fn lower_instr(&mut self, expr: &'a Expr) -> Result<()> {
+    pub fn lower_instr(&mut self, expr: &'a Expr) -> LowResult<()> {
         match expr {
             Expr::Group(group) => self.lower_instr(&group.atom),
             Expr::Assign(_) => self.lower_operand(expr).map(drop),
@@ -139,7 +129,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
         }
     }
 
-    pub fn lower_if(&mut self, if_else: &'a IfElse) -> Result<()> {
+    pub fn lower_if(&mut self, if_else: &'a IfElse) -> LowResult<()> {
         let end = self.new_label();
         for branch in if_else.branches.iter() {
             match &branch.condition {
@@ -158,7 +148,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
     }
 
     /// A switch is lowered as a chain of comparisons
-    pub fn lower_switch(&mut self, switch: &'a Switch) -> Result<()> {
+    pub fn lower_switch(&mut self, switch: &'a Switch) -> LowResult<()> {
         let value = self.lower_operand(&switch.variable)?;
         let end = self.new_label();
         for case in switch.cases.iter() {
@@ -178,7 +168,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
         Ok(())
     }
 
-    pub fn lower_loop(&mut self, loop_stmt: &'a Loop, label: Option<Ident>) -> Result<()> {
+    pub fn lower_loop(&mut self, loop_stmt: &'a Loop, label: Option<Ident>) -> LowResult<()> {
         let head = self.new_label();
         let end = self.new_label();
 
@@ -209,7 +199,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
             // cont: iter += step; jump head; end:
             LoopType::For(header) => {
                 if header.inline {
-                    return unsupported("`inline for`", header.span);
+                    return Err(LowError::unsupported(header.span, "`inline for`"));
                 }
                 self.scopes.push(HashMap::new());
                 let iter = match &header.iter {

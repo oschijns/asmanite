@@ -2,7 +2,7 @@
 //! how they are registered from the AST (pass 1 of the translation)
 //! and evaluation of the compile-time constants they declare.
 
-use crate::error::{LowError, LowErrorKind, Result, unsupported};
+use crate::error::{LowError, LowErrorKind, LowResult};
 use asmanite_ast::{
     lexer::atom::VarType,
     parser::{
@@ -192,7 +192,7 @@ impl<'a> SymbolTree<'a> {
         ident: Ident,
         symbol_type: SymbolType<'a>,
         bank: Option<Ident>,
-    ) -> core::result::Result<NodeId, NodeId> {
+    ) -> Result<NodeId, NodeId> {
         if let Some(existing) = self.find_child(parent, &ident) {
             return Err(existing);
         }
@@ -240,10 +240,10 @@ impl<'a> SymbolTree<'a> {
     }
 
     /// Find the symbol a path refers to, starting from a module
-    pub fn resolve(&self, module: NodeId, path: &Path, span: Span) -> Result<&SymbolData<'a>> {
+    pub fn resolve(&self, module: NodeId, path: &Path, span: Span) -> LowResult<&SymbolData<'a>> {
         self.resolve_path_from(module, path)
             .and_then(|node| self.get(node))
-            .ok_or_else(|| LowError::new(span, LowErrorKind::Unresolved { path: path.clone() }))
+            .ok_or_else(|| LowError::unresolved(span, path.clone()))
     }
 
     /// Module in which a symbol is declared (the root module is in itself)
@@ -262,10 +262,10 @@ impl<'a> SymbolTree<'a> {
                 ModElement::Mod(sub) => self
                     .declare(node, &sub.ident, SymbolType::Module, None, sub.span)
                     .map(|child| self.collect(sub, child, errors)),
-                ModElement::ModDecl(decl) => unsupported(
-                    "loading a module from another file (`mod name;`)",
+                ModElement::ModDecl(decl) => Err(LowError::unsupported(
                     decl.span,
-                ),
+                    "loading a module from another file (`mod name;`)",
+                )),
                 // TODO: resolve imports into per-module alias tables
                 ModElement::Use(_) => Ok(()),
                 ModElement::Type(ty) => {
@@ -320,16 +320,9 @@ impl<'a> SymbolTree<'a> {
         symbol_type: SymbolType<'a>,
         bank: Option<Ident>,
         span: Span,
-    ) -> Result<NodeId> {
+    ) -> LowResult<NodeId> {
         self.insert(parent, ident.clone(), symbol_type, bank)
-            .map_err(|_| {
-                LowError::new(
-                    span,
-                    LowErrorKind::Duplicate {
-                        ident: ident.clone(),
-                    },
-                )
-            })
+            .map_err(|_| LowError::duplicate(span, ident.clone()))
     }
 }
 
@@ -366,70 +359,60 @@ impl<'a> SymbolTree<'a> {
         module: NodeId,
         locals: LocalConsts,
         visiting: &mut Vec<NodeId>,
-    ) -> Result<Number> {
-        let not_const = || LowError::new(expr.span(), LowErrorKind::NotConstant);
+    ) -> LowResult<Number> {
+        let not_const = LowError::new(expr.span(), LowErrorKind::NotConstant);
 
         match expr {
-            Expr::Lit(lit) => Number::from_literal(&lit.atom).ok_or_else(not_const),
+            Expr::Lit(lit) => Number::from_literal(&lit.atom).ok_or(not_const),
             Expr::Group(group) => self.eval_const(&group.atom, module, locals, visiting),
             // TODO: truncate the value to the size of the primitive
             Expr::Cast(cast) => self.eval_const(&cast.expr, module, locals, visiting),
-            Expr::Var(var) => {
-                match locals(&var.atom) {
-                    SymbolValue::LocalConst(value) => return Ok(value),
-                    SymbolValue::Local => return Err(not_const()),
-                    SymbolValue::None => {}
+            Expr::Var(var) => match locals(&var.atom) {
+                SymbolValue::LocalConst(value) => Ok(value),
+                SymbolValue::Local => Err(not_const),
+                SymbolValue::None => {
+                    let node = self
+                        .resolve_path_from(module, &var.atom)
+                        .ok_or_else(|| LowError::unresolved(var.span, var.atom.clone()))?;
+                    let symbol = self.get(node).expect("resolved nodes exist");
+
+                    if let SymbolType::Var(decl) = symbol.symbol_type
+                        && matches!(decl.var_type, VarType::Const | VarType::Let)
+                        && let Some(value) = &decl.assign_expr
+                    {
+                        if visiting.contains(&node) {
+                            Err(LowError::cyclic_const(var.span, symbol.path.clone()))
+                        } else {
+                            visiting.push(node);
+                            let result = self.eval_const(
+                                value,
+                                self.module_of(symbol),
+                                &no_locals,
+                                visiting,
+                            );
+                            visiting.pop();
+                            result
+                        }
+                    } else {
+                        Err(not_const)
+                    }
                 }
-                let node = self.resolve_path_from(module, &var.atom).ok_or_else(|| {
-                    LowError::new(
-                        var.span,
-                        LowErrorKind::Unresolved {
-                            path: var.atom.clone(),
-                        },
-                    )
-                })?;
-                let symbol = self.get(node).expect("resolved nodes exist");
-                let SymbolType::Var(decl) = symbol.symbol_type else {
-                    return Err(not_const());
-                };
-                if !matches!(decl.var_type, VarType::Const | VarType::Let) {
-                    return Err(not_const());
-                }
-                let Some(value) = &decl.assign_expr else {
-                    return Err(not_const());
-                };
-                if visiting.contains(&node) {
-                    return Err(LowError::new(
-                        var.span,
-                        LowErrorKind::CyclicConstant {
-                            path: symbol.path.clone(),
-                        },
-                    ));
-                }
-                visiting.push(node);
-                let result = self.eval_const(value, self.module_of(symbol), &no_locals, visiting);
-                visiting.pop();
-                result
-            }
+            },
             Expr::Unary(unary) => {
                 let value = self.eval_const(&unary.expr, module, locals, visiting)?;
-                unary.op.op_type.eval_unary_num(value).ok_or_else(not_const)
+                unary.op.op_type.eval_unary_num(value).ok_or(not_const)
             }
             Expr::Binary(binary) if !binary.op.carry => {
                 let lhs = self.eval_const(&binary.lhs, module, locals, visiting)?;
                 let rhs = self.eval_const(&binary.rhs, module, locals, visiting)?;
-                binary
-                    .op
-                    .op_type
-                    .eval_binary_num(lhs, rhs)
-                    .ok_or_else(not_const)
+                binary.op.op_type.eval_binary_num(lhs, rhs).ok_or(not_const)
             }
-            _ => Err(not_const()),
+            _ => Err(not_const),
         }
     }
 
     /// Evaluate a fixed address
-    pub fn address(&self, expr: &Expr, module: NodeId, locals: LocalConsts) -> Result<Addr> {
+    pub fn address(&self, expr: &Expr, module: NodeId, locals: LocalConsts) -> LowResult<Addr> {
         let value = self.eval_const(expr, module, locals, &mut Vec::new())?;
         Addr::try_from(value).map_err(|_| LowError::new(expr.span(), LowErrorKind::NotConstant))
     }

@@ -2,6 +2,9 @@
 
 use asmanite_common::{ident::Ident, path::Path, span::Span};
 
+/// Result of lowering an AST node into IR instructions
+pub type LowResult<T> = Result<T, LowError>;
+
 /// Error raised while translating the AST into the IR
 #[derive(thiserror::Error, Debug, Clone, PartialEq)]
 #[error("{kind}")]
@@ -18,6 +21,114 @@ impl LowError {
     #[inline]
     pub fn new(span: Span, kind: LowErrorKind) -> Self {
         Self { span, kind }
+    }
+
+    /// Create a new unresolved error
+    #[inline]
+    pub fn unresolved(span: Span, path: Path) -> Self {
+        Self {
+            span,
+            kind: LowErrorKind::Unresolved { path },
+        }
+    }
+
+    /// Create a new duplicate error
+    #[inline]
+    pub fn duplicate(span: Span, ident: Ident) -> Self {
+        Self {
+            span,
+            kind: LowErrorKind::Duplicate { ident },
+        }
+    }
+
+    /// Create a new unknown label error
+    #[inline]
+    pub fn unknown_label(span: Span, label: Ident) -> Self {
+        Self {
+            span,
+            kind: LowErrorKind::UnknownLabel { label },
+        }
+    }
+
+    /// Create a new wrong kind error
+    #[inline]
+    pub fn wrong_kind(span: Span, path: Path, expected: &'static str) -> Self {
+        Self {
+            span,
+            kind: LowErrorKind::WrongKind { path, expected },
+        }
+    }
+
+    /// Create a new cyclic constant error
+    #[inline]
+    pub fn cyclic_const(span: Span, path: Path) -> Self {
+        Self {
+            span,
+            kind: LowErrorKind::CyclicConstant { path },
+        }
+    }
+
+    /// Create a new argument count error
+    #[inline]
+    pub fn arg_count(span: Span, expected: usize, found: usize) -> Self {
+        Self {
+            span,
+            kind: LowErrorKind::ArgCount { expected, found },
+        }
+    }
+
+    /// Create a new missing storage error
+    #[inline]
+    pub fn missing_storage(span: Span, ident: Ident) -> Self {
+        Self {
+            span,
+            kind: LowErrorKind::MissingStorage { ident },
+        }
+    }
+
+    /// Create a new missing return value error
+    #[inline]
+    pub fn no_return_value(span: Span, path: Path) -> Self {
+        Self {
+            span,
+            kind: LowErrorKind::NoReturnValue { path },
+        }
+    }
+
+    /// Create a new not at startup error
+    #[inline]
+    pub fn not_at_startup(span: Span, ident: Ident) -> Self {
+        Self {
+            span,
+            kind: LowErrorKind::NotAtStartup { ident },
+        }
+    }
+
+    /// Create a new not in module error
+    #[inline]
+    pub fn not_in_mod(span: Span, var_type: &'static str) -> Self {
+        Self {
+            span,
+            kind: LowErrorKind::NotInModule { var_type },
+        }
+    }
+
+    /// Create a new recusrive inline error
+    #[inline]
+    pub fn rec_inline(span: Span, path: Path) -> Self {
+        Self {
+            span,
+            kind: LowErrorKind::RecursiveInline { path },
+        }
+    }
+
+    /// Create a new unsupported feature error
+    #[inline]
+    pub fn unsupported(span: Span, what: &'static str) -> Self {
+        Self {
+            span,
+            kind: LowErrorKind::Unsupported { what },
+        }
     }
 }
 
@@ -79,14 +190,6 @@ pub enum LowErrorKind {
 
     #[error("{what} is not supported yet")]
     Unsupported { what: &'static str },
-}
-
-pub type Result<T> = core::result::Result<T, LowError>;
-
-/// Shorthand to report an unsupported feature
-#[inline]
-pub fn unsupported<T>(what: &'static str, span: Span) -> Result<T> {
-    Err(LowError::new(span, LowErrorKind::Unsupported { what }))
 }
 
 /// Filter out repeated errors which result from inline function expansion

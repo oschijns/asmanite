@@ -1,7 +1,7 @@
 //! Local scopes: declaration and lookup of the names visible in a function
 
 use super::{
-    error::{LowError, LowErrorKind, Result, unsupported},
+    error::{LowError, LowErrorKind, LowResult},
     function::{FuncLowerer, child},
     startup::StaticInit,
 };
@@ -61,10 +61,11 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
 
     /// Find a local variable (only single identifiers can be locals)
     pub fn local(&self, path: &Path) -> Option<&Local<'a>> {
-        let [ident] = path.as_slice() else {
-            return None;
-        };
-        self.scopes.iter().rev().find_map(|scope| scope.get(ident))
+        if let [ident] = path.as_slice() {
+            self.scopes.iter().rev().find_map(|scope| scope.get(ident))
+        } else {
+            None
+        }
     }
 
     /// Every local variable visible from the current scope
@@ -82,18 +83,19 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
     pub fn local_path(&self, ident: &Ident) -> Path {
         let base = child(&self.path, ident.clone());
         let taken = |path: &Path| self.locals.iter().any(|data| data.name == *path);
-        if !taken(&base) {
-            return base;
+        if taken(&base) {
+            // '.' cannot appear in a user identifier
+            (1..)
+                .map(|n| child(&self.path, Ident::new(&format!("{ident}.{n}"))))
+                .find(|path| !taken(path))
+                .expect("there is always a free name")
+        } else {
+            base
         }
-        // '.' cannot appear in a user identifier
-        (1..)
-            .map(|n| child(&self.path, Ident::new(&format!("{ident}.{n}"))))
-            .find(|path| !taken(path))
-            .expect("there is always a free name")
     }
 
     /// Declare a variable in the current scope
-    pub fn declare_local(&mut self, var: &'a VarDecl, bank: Option<Ident>) -> Result<()> {
+    pub fn declare_local(&mut self, var: &'a VarDecl, bank: Option<Ident>) -> LowResult<()> {
         match var.var_type {
             // Constants are replaced by their value
             VarType::Const | VarType::Let => {
@@ -109,7 +111,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                 );
                 Ok(())
             }
-            VarType::Stack => unsupported("stack variables", var.span),
+            VarType::Stack => Err(LowError::unsupported(var.span, "stack variables")),
             VarType::Var | VarType::Static => {
                 let locals = |path: &Path| self.local_const(path);
                 let storage = self
@@ -145,43 +147,39 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
     }
 
     /// Operand of a variable
-    pub fn lookup_var(&self, path: &Path, span: Span) -> Result<Operand> {
+    pub fn lookup_var(&self, path: &Path, span: Span) -> LowResult<Operand> {
         if let Some(local) = self.local(path) {
             if self.startup && local.kind == LocalKind::Runtime {
-                return Err(LowError::new(
+                Err(LowError::not_at_startup(span, path[0].clone()))
+            } else {
+                Ok(local.operand.clone())
+            }
+        } else {
+            let symbol = self.globals.resolve(self.module, path, span)?;
+            match symbol.symbol_type {
+                SymbolType::Var(var) if matches!(var.var_type, VarType::Const | VarType::Let) => {
+                    let value = var
+                        .assign_expr
+                        .as_ref()
+                        .ok_or(LowError::new(span, LowErrorKind::NotConstant))?;
+                    self.globals
+                        .eval_const(
+                            value,
+                            self.globals.module_of(symbol),
+                            &no_locals,
+                            &mut Vec::new(),
+                        )
+                        .map(Operand::Imm)
+                }
+                SymbolType::Var(_) => Ok(Operand::mem(symbol.path().clone())),
+                _ => Err(LowError::new(
                     span,
-                    LowErrorKind::NotAtStartup {
-                        ident: path[0].clone(),
+                    LowErrorKind::WrongKind {
+                        path: path.clone(),
+                        expected: "variable",
                     },
-                ));
+                )),
             }
-            return Ok(local.operand.clone());
-        }
-
-        let symbol = self.globals.resolve(self.module, path, span)?;
-        match symbol.symbol_type {
-            SymbolType::Var(var) if matches!(var.var_type, VarType::Const | VarType::Let) => {
-                let value = var
-                    .assign_expr
-                    .as_ref()
-                    .ok_or(LowError::new(span, LowErrorKind::NotConstant))?;
-                self.globals
-                    .eval_const(
-                        value,
-                        self.globals.module_of(symbol),
-                        &no_locals,
-                        &mut Vec::new(),
-                    )
-                    .map(Operand::Imm)
-            }
-            SymbolType::Var(_) => Ok(Operand::mem(symbol.path().clone())),
-            _ => Err(LowError::new(
-                span,
-                LowErrorKind::WrongKind {
-                    path: path.clone(),
-                    expected: "variable",
-                },
-            )),
         }
     }
 
@@ -207,7 +205,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
     }
 
     /// Evaluate an expression which must be constant
-    pub fn require_const(&self, expr: &Expr) -> Result<Number> {
+    pub fn require_const(&self, expr: &Expr) -> LowResult<Number> {
         self.try_const(expr)
             .ok_or(LowError::new(expr.span(), LowErrorKind::NotConstant))
     }

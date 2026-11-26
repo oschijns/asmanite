@@ -1,7 +1,7 @@
 //! Lowering of expressions onto operands, without temporaries
 
 use super::{
-    error::{LowError, LowErrorKind, Result, unsupported},
+    error::{LowError, LowErrorKind, LowResult},
     function::FuncLowerer,
 };
 use crate::symbol::{SymbolType, no_locals};
@@ -14,13 +14,13 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
     ///
     /// Assignments and calls are operands: their value is their destination
     /// (`x = a = 1` stores 1 in `a`, then `a` in `x`).
-    pub fn lower_operand(&mut self, expr: &'a Expr) -> Result<Operand> {
+    pub fn lower_operand(&mut self, expr: &'a Expr) -> LowResult<Operand> {
         if let Some(value) = self.try_const(expr) {
             return Ok(Operand::Imm(value));
         }
 
         match expr {
-            Expr::Lit(lit) => unsupported("float and string literals", lit.span),
+            Expr::Lit(lit) => Err(LowError::unsupported(lit.span, "float and string literals")),
             Expr::Register(reg) => Ok(Operand::Reg(reg.atom)),
             Expr::Var(var) => self.lookup_var(&var.atom, var.span),
             Expr::Group(group) => self.lower_operand(&group.atom),
@@ -53,14 +53,9 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                 }
                 Ok(dst)
             }
-            Expr::Call(call) => self.lower_call(call)?.ok_or_else(|| {
-                LowError::new(
-                    call.span,
-                    LowErrorKind::NoReturnValue {
-                        path: call.callee.clone(),
-                    },
-                )
-            }),
+            Expr::Call(call) => self
+                .lower_call(call)?
+                .ok_or_else(|| LowError::no_return_value(call.span, call.callee.clone())),
             // Status flags, comparisons and other operations need a destination
             Expr::Status(_) | Expr::Binary(_) => {
                 Err(LowError::new(expr.span(), LowErrorKind::NotAnOperand))
@@ -71,7 +66,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
     /// Write the value of an expression into `dst`.
     /// Besides operands, the expression can be a single unary or binary
     /// operation on operands (`dst = -x`, `dst = x + 1`).
-    pub fn lower_into(&mut self, dst: Operand, expr: &'a Expr) -> Result<()> {
+    pub fn lower_into(&mut self, dst: Operand, expr: &'a Expr) -> LowResult<()> {
         if let Some(value) = self.try_const(expr) {
             self.transfer(dst, Operand::Imm(value));
             return Ok(());
@@ -85,7 +80,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                     self.transfer(dst, src);
                     Ok(())
                 }
-                OpType::BitAnd | OpType::Mul => unsupported("pointers", unary.span),
+                OpType::BitAnd | OpType::Mul => Err(LowError::unsupported(unary.span, "pointers")),
                 // `!` is a logical operator, only valid in conditions
                 OpType::Not => Err(LowError::new(expr.span(), LowErrorKind::NotAnOperand)),
                 _ => {
@@ -116,7 +111,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
     }
 
     /// Lower an expression designating a location that can be written to
-    pub fn lower_place(&mut self, expr: &'a Expr) -> Result<Operand> {
+    pub fn lower_place(&mut self, expr: &'a Expr) -> LowResult<Operand> {
         let not_assignable = || LowError::new(expr.span(), LowErrorKind::NotAssignable);
         match expr {
             Expr::Register(reg) => Ok(Operand::Reg(reg.atom)),
@@ -143,20 +138,20 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                     Ok(Operand::Mem(cell))
                 } else {
                     // TODO: compute the address at runtime
-                    unsupported(
-                        "indexing with something else than a constant or a register",
+                    Err(LowError::unsupported(
                         index.span,
-                    )
+                        "indexing with something else than a constant or a register",
+                    ))
                 }
             }
             // TODO: requires struct layouts
-            Expr::Access(access) => unsupported("field access", access.span),
+            Expr::Access(access) => Err(LowError::unsupported(access.span, "field access")),
             _ => Err(not_assignable()),
         }
     }
 
     /// Size of the elements of an array variable
-    pub fn element_size(&self, expr: &Expr) -> Result<u32> {
+    pub fn element_size(&self, expr: &Expr) -> LowResult<u32> {
         let (ty, module) = match expr {
             Expr::Var(var) => match self.local(&var.atom) {
                 Some(local) => (local.ty, self.module),
@@ -176,10 +171,10 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
             Some(TypeUsed::Array(array)) => {
                 self.globals.size_of(&array.cell_type, module, &no_locals)
             }
-            _ => unsupported(
-                "indexing something else than an array variable",
+            _ => Err(LowError::unsupported(
                 expr.span(),
-            ),
+                "indexing something else than an array variable",
+            )),
         }
     }
 }
