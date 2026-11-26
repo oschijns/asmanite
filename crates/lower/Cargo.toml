@@ -1,6 +1,6 @@
 [package]
-name = "asmanite-translator"
-description = "Translate Asmanite syntax into intermediate representation"
+name = "asmanite-lower"
+description = "Lower Asmanite AST into IR"
 repository.workspace = true
 categories.workspace = true
 keywords.workspace = true

@@ -1,7 +1,7 @@
 //! Local scopes: declaration and lookup of the names visible in a function
 
 use super::{
-    error::{Result, TrsError, TrsErrorKind, unsupported},
+    error::{LowError, LowErrorKind, Result, unsupported},
     function::{FuncLowerer, child},
     startup::StaticInit,
 };
@@ -23,13 +23,13 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct Local<'a> {
     /// Where the variable lives (an immediate value for constants)
-    pub(super) operand: Operand,
+    pub(crate) operand: Operand,
 
     /// Declared type, if any (used to compute element sizes)
-    pub(super) ty: Option<&'a TypeUsed>,
+    pub(crate) ty: Option<&'a TypeUsed>,
 
     /// What kind of variable it is
-    pub(super) kind: LocalKind,
+    pub(crate) kind: LocalKind,
 }
 
 /// Kind of local variable
@@ -99,7 +99,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
             VarType::Const | VarType::Let => {
                 let value = match &var.assign_expr {
                     Some(expr) => self.require_const(expr)?,
-                    None => return Err(TrsError::new(var.span, TrsErrorKind::NotConstant)),
+                    None => return Err(LowError::new(var.span, LowErrorKind::NotConstant)),
                 };
                 self.bind(
                     var.ident.clone(),
@@ -148,9 +148,9 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
     pub fn lookup_var(&self, path: &Path, span: Span) -> Result<Operand> {
         if let Some(local) = self.local(path) {
             if self.startup && local.kind == LocalKind::Runtime {
-                return Err(TrsError::new(
+                return Err(LowError::new(
                     span,
-                    TrsErrorKind::NotAtStartup {
+                    LowErrorKind::NotAtStartup {
                         ident: path[0].clone(),
                     },
                 ));
@@ -164,7 +164,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                 let value = var
                     .assign_expr
                     .as_ref()
-                    .ok_or(TrsError::new(span, TrsErrorKind::NotConstant))?;
+                    .ok_or(LowError::new(span, LowErrorKind::NotConstant))?;
                 self.globals
                     .eval_const(
                         value,
@@ -175,9 +175,9 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                     .map(Operand::Imm)
             }
             SymbolType::Var(_) => Ok(Operand::mem(symbol.path().clone())),
-            _ => Err(TrsError::new(
+            _ => Err(LowError::new(
                 span,
-                TrsErrorKind::WrongKind {
+                LowErrorKind::WrongKind {
                     path: path.clone(),
                     expected: "variable",
                 },
@@ -209,6 +209,6 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
     /// Evaluate an expression which must be constant
     pub fn require_const(&self, expr: &Expr) -> Result<Number> {
         self.try_const(expr)
-            .ok_or(TrsError::new(expr.span(), TrsErrorKind::NotConstant))
+            .ok_or(LowError::new(expr.span(), LowErrorKind::NotConstant))
     }
 }

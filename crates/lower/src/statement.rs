@@ -2,7 +2,7 @@
 //! (blocks, `if`, `switch`, loops, `break`/`continue`, `goto`, `return`)
 
 use super::{
-    error::{Result, TrsError, TrsErrorKind, unsupported},
+    error::{LowError, LowErrorKind, Result, unsupported},
     function::{FuncLowerer, child},
     scope::LocalKind,
 };
@@ -28,9 +28,9 @@ use std::collections::{HashMap, HashSet};
 
 /// Loop currently being lowered, targeted by `break` and `continue`
 pub struct LoopFrame {
-    pub(super) label: Option<Ident>,
-    pub(super) brk: LabelId,
-    pub(super) cont: LabelId,
+    pub(crate) label: Option<Ident>,
+    pub(crate) id_break: LabelId,
+    pub(crate) id_continue: LabelId,
 }
 
 impl<'g, 'a> FuncLowerer<'g, 'a> {
@@ -75,9 +75,9 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                         .rev()
                         .find(|frame| frame.label.as_ref() == Some(label))
                         .ok_or_else(|| {
-                            TrsError::new(
+                            LowError::new(
                                 ctrl.span,
-                                TrsErrorKind::UnknownLabel {
+                                LowErrorKind::UnknownLabel {
                                     label: label.clone(),
                                 },
                             )
@@ -85,20 +85,20 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                     None => self
                         .loops
                         .last()
-                        .ok_or(TrsError::new(ctrl.span, TrsErrorKind::OutsideLoop))?,
+                        .ok_or(LowError::new(ctrl.span, LowErrorKind::OutsideLoop))?,
                 };
                 let target = match ctrl.ctrl_type {
-                    LoopCtrlType::Break => frame.brk,
-                    LoopCtrlType::Continue => frame.cont,
+                    LoopCtrlType::Break => frame.id_break,
+                    LoopCtrlType::Continue => frame.id_continue,
                 };
                 self.jump(target);
                 Ok(())
             }
             StmtInner::Goto(goto) => {
                 if !self.labels.contains(&goto.label) {
-                    return Err(TrsError::new(
+                    return Err(LowError::new(
                         goto.span,
-                        TrsErrorKind::UnknownLabel {
+                        LowErrorKind::UnknownLabel {
                             label: goto.label.clone(),
                         },
                     ));
@@ -110,9 +110,9 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
             StmtInner::Return(ret) => {
                 if let Some(value) = &ret.value {
                     let Some(dst) = self.ret.clone() else {
-                        return Err(TrsError::new(
+                        return Err(LowError::new(
                             ret.span,
-                            TrsErrorKind::NoReturnValue {
+                            LowErrorKind::NoReturnValue {
                                 path: self.path.clone(),
                             },
                         ));
@@ -135,7 +135,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
             Expr::Unary(unary) if matches!(unary.op.op_type, OpType::Inc | OpType::Dec) => {
                 self.lower_operand(expr).map(drop)
             }
-            _ => Err(TrsError::new(expr.span(), TrsErrorKind::NoEffect)),
+            _ => Err(LowError::new(expr.span(), LowErrorKind::NoEffect)),
         }
     }
 
@@ -268,7 +268,11 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
         brk: LabelId,
         cont: LabelId,
     ) {
-        self.loops.push(LoopFrame { label, brk, cont });
+        self.loops.push(LoopFrame {
+            label,
+            id_break: brk,
+            id_continue: cont,
+        });
         self.lower_block(block);
         self.loops.pop();
     }
@@ -300,14 +304,13 @@ pub fn collect_labels(block: &[Statement], labels: &mut HashSet<Ident>) {
 
 #[cfg(test)]
 mod tests {
-
-    use crate::transform::test_utils::*;
+    use crate::test_utils::*;
     use asmanite_common::{ToBox, ident::Ident, operator::op, path::Path};
     use asmanite_ir::intermediate::{IrData, IrStorage, OpBinary, OpCode, Operand};
 
     #[test]
     fn lowers_if_and_return_into_branches() {
-        let program = translate(
+        let program = run_translation(
             "fn check in code (value: u8 in zp) -> a {
                 if value == 0 { return 1; }
                 return value;
@@ -345,7 +348,8 @@ mod tests {
 
     #[test]
     fn lowers_for_loop_with_step() {
-        let program = translate("fn f in code () { for i: u8 in zp of 0..4 step 2 { a = i; } }");
+        let program =
+            run_translation("fn f in code () { for i: u8 in zp of 0..4 step 2 { a = i; } }");
         let func = function(&program, "f");
 
         assert_eq!(func.locals[0].name, Path::from("f::i"));

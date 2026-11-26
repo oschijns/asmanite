@@ -1,7 +1,7 @@
 //! Pass 3: lowering of a function and of its signature
 
 use super::{
-    error::{Result, TrsError, TrsErrorKind},
+    error::{LowError, LowErrorKind, Result},
     scope::{Local, LocalKind},
     startup::StaticInit,
     statement::{LoopFrame, collect_labels},
@@ -21,13 +21,13 @@ use std::collections::{HashMap, HashSet};
 
 /// A function lowered without error
 pub struct Lowered<'a> {
-    pub(super) func: IrFunc,
+    pub(crate) func: IrFunc,
 
     /// Initializers of the statics declared in the function
-    pub(super) static_inits: Vec<StaticInit<'a>>,
+    pub(crate) static_inits: Vec<StaticInit<'a>>,
 
     /// Memory cells of the inline functions expanded in the function
-    pub(super) inline_data: Vec<IrData>,
+    pub(crate) inline_data: Vec<IrData>,
 }
 
 /// Translate the body of one function
@@ -35,52 +35,52 @@ pub struct FuncLowerer<'g, 'a> {
     pub globals: &'g SymbolTree<'a>,
 
     /// Module in which the function is declared
-    pub(super) module: NodeId,
+    pub(crate) module: NodeId,
 
     /// Absolute path of the function (or of the inline function being expanded)
-    pub(super) path: Path,
+    pub(crate) path: Path,
 
     /// Prefix of the user labels. Unique for each inline expansion,
     /// so that expanding a function twice does not define its labels twice.
-    pub(super) label_path: Path,
+    pub(crate) label_path: Path,
 
     /// Stack of lexical scopes
-    pub(super) scopes: Vec<HashMap<Ident, Local<'a>>>,
+    pub(crate) scopes: Vec<HashMap<Ident, Local<'a>>>,
 
     /// User labels defined in the function
-    pub(super) labels: HashSet<Ident>,
+    pub(crate) labels: HashSet<Ident>,
 
     /// Loops enclosing the current statement
-    pub(super) loops: Vec<LoopFrame>,
+    pub(crate) loops: Vec<LoopFrame>,
 
     /// Where the return value goes
-    pub(super) ret: Option<Operand>,
+    pub(crate) ret: Option<Operand>,
 
     /// Label placed right before the final `Return`
-    pub(super) exit: LabelId,
+    pub(crate) exit: LabelId,
 
     /// Lowering the startup routine ? (only constants and statics are available)
-    pub(super) startup: bool,
+    pub(crate) startup: bool,
 
     /// Initializers of the statics declared in the function
-    pub(super) static_inits: Vec<StaticInit<'a>>,
+    pub(crate) static_inits: Vec<StaticInit<'a>>,
 
     /// Statics already initialized by the startup routine
-    pub(super) initialized: HashSet<Path>,
+    pub(crate) initialized: HashSet<Path>,
 
     /// Inline functions being expanded (to detect recursion)
-    pub(super) inline_stack: Vec<Path>,
+    pub(crate) inline_stack: Vec<Path>,
 
     /// Number of inline expansions so far
-    pub(super) inline_count: u32,
+    pub(crate) inline_count: u32,
 
     /// Memory cells of the expanded inline functions
-    pub(super) inline_data: Vec<IrData>,
+    pub(crate) inline_data: Vec<IrData>,
 
-    pub(super) locals: Vec<IrData>,
-    pub(super) body: Vec<OpCode>,
-    pub(super) next_label: LabelId,
-    pub(super) errors: Vec<TrsError>,
+    pub(crate) locals: Vec<IrData>,
+    pub(crate) body: Vec<OpCode>,
+    pub(crate) next_label: LabelId,
+    pub(crate) errors: Vec<LowError>,
 }
 
 /// Path of an element owned by another one (`parent::ident`)
@@ -147,11 +147,11 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
         mut self,
         func: &'a FuncDecl,
         bank: Option<&Ident>,
-    ) -> core::result::Result<Lowered<'a>, Vec<TrsError>> {
+    ) -> core::result::Result<Lowered<'a>, Vec<LowError>> {
         if func.generics.is_some() {
-            self.errors.push(TrsError::new(
+            self.errors.push(LowError::new(
                 func.span,
-                TrsErrorKind::Unsupported {
+                LowErrorKind::Unsupported {
                     what: "generic functions",
                 },
             ));
@@ -171,9 +171,9 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
             (Some(storage), _) => Some(storage),
             (None, Some(bank)) => Some(IrStorage::Bank(bank.clone())),
             (None, None) => {
-                self.errors.push(TrsError::new(
+                self.errors.push(LowError::new(
                     func.span,
-                    TrsErrorKind::MissingStorage {
+                    LowErrorKind::MissingStorage {
                         ident: func.ident.clone(),
                     },
                 ));
@@ -235,7 +235,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                         ),
                         _ => self
                             .errors
-                            .push(TrsError::new(param.span, TrsErrorKind::NotConstant)),
+                            .push(LowError::new(param.span, LowErrorKind::NotConstant)),
                     },
                     _ => {
                         let data = self.param_data(
@@ -299,16 +299,13 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::transform::{TrsError, TrsErrorKind, transform};
-
+    use crate::{LowError, LowErrorKind, test_utils::*, translate};
     use asmanite_common::{ident::Ident, path::Path};
-
-    use crate::transform::test_utils::*;
     use asmanite_ir::intermediate::IrStorage;
 
     #[test]
     fn places_functions_explicitly_or_through_bank_blocks() {
-        let program = translate(
+        let program = run_translation(
             "fn header in code () {}
              fn fixed at 0x8000 () {}
              inline fn expanded() {}
@@ -331,21 +328,21 @@ mod tests {
         assert_eq!(storage("banked"), IrStorage::Bank(Ident::new("prog")));
         assert_eq!(program.data[0].storage, IrStorage::Bank(Ident::new("prog")));
 
-        let errors = transform(&parse("fn f() {}")).expect_err("translation should fail");
+        let errors = translate(&parse("fn f() {}")).expect_err("translation should fail");
         assert!(matches!(
             &errors[..],
-            [TrsError {
-                kind: TrsErrorKind::MissingStorage { .. },
+            [LowError {
+                kind: LowErrorKind::MissingStorage { .. },
                 ..
             }]
         ));
 
         let errors =
-            transform(&parse("inline fn f in code () {}")).expect_err("translation should fail");
+            translate(&parse("inline fn f in code () {}")).expect_err("translation should fail");
         assert!(matches!(
             &errors[..],
-            [TrsError {
-                kind: TrsErrorKind::InlinePlacement,
+            [LowError {
+                kind: LowErrorKind::InlinePlacement,
                 ..
             }]
         ));

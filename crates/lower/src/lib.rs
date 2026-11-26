@@ -1,4 +1,4 @@
-//! First draft of the AST → IR translation.
+//! Lower the Abstract Syntatic Tree into the Intermediate Representation
 //!
 //! The translation runs in three passes:
 //!
@@ -32,7 +32,7 @@
 //!   immediate value in memory requires a register on the 6502) is the job of the
 //!   backend.
 //!
-//! Limitations of this draft (reported as [`TrsError::Unsupported`] or ignored):
+//! Limitations of this draft (reported as [`LowError::Unsupported`] or ignored):
 //! - `use` statements are ignored: names resolve by walking up enclosing modules.
 //! - Only primitive and array types have a size (no struct/union/enum layouts yet).
 //! - Generics, `defer`, `inline for`, field accesses and pointers are not handled.
@@ -40,7 +40,7 @@
 mod call;
 mod condition;
 mod emit;
-pub(crate) mod error;
+mod error;
 mod expression;
 mod function;
 mod inline;
@@ -48,17 +48,22 @@ mod scope;
 mod startup;
 mod statement;
 mod storage;
+pub mod symbol;
 
 #[cfg(test)]
 pub(crate) mod test_utils;
 
 // re-export error types
-pub use error::{TrsError, TrsErrorKind};
+pub use error::{LowError, LowErrorKind};
 
-use self::{function::FuncLowerer, startup::StaticInit};
-use crate::symbol::{SymbolTree, SymbolType};
+use crate::{
+    error::filter_unique_errors,
+    symbol::{SymbolTree, SymbolType},
+};
 use asmanite_ast::parser::{function::FuncMarker, memory::MemStorage, module::Module};
 use asmanite_ir::intermediate::{IrData, IrProgram};
+use function::FuncLowerer;
+use startup::StaticInit;
 use std::collections::HashMap;
 
 // MARK: Entry point
@@ -67,28 +72,28 @@ use std::collections::HashMap;
 ///
 /// All `mod name;` declarations must already have been replaced by the module
 /// they refer to. Every error encountered is reported, not only the first one.
-pub fn transform(root: &Module) -> core::result::Result<IrProgram, Vec<TrsError>> {
+pub fn translate(root: &Module) -> Result<IrProgram, Box<[LowError]>> {
     let mut errors = Vec::new();
 
     // Pass 1: register every declaration
-    let mut globals = SymbolTree::new();
-    let root_node = globals.root();
-    globals.collect(root, root_node, &mut errors);
+    let mut symbol_tree = SymbolTree::new();
+    let root_node = symbol_tree.root();
+    symbol_tree.collect(root, root_node, &mut errors);
 
     // Pass 2: constants and static variables.
     // The initializers of the statics are computed at runtime, by the startup routine.
     let mut data = Vec::new();
-    let mut init = FuncLowerer::startup(&globals, root_node);
-    for symbol in globals.symbols() {
+    let mut init = FuncLowerer::startup(&symbol_tree, root_node);
+    for symbol in symbol_tree.symbols() {
         if let SymbolType::Var(var) = symbol.symbol_type {
-            match globals.global_data(symbol, var) {
+            match symbol_tree.global_data(symbol, var) {
                 Ok(Some(item)) => {
                     data.push(item);
                     if let Some(value) = &var.assign_expr {
                         init.lower_static_init(StaticInit::new(
                             symbol.path().clone(),
                             value,
-                            globals.module_of(symbol),
+                            symbol_tree.module_of(symbol),
                             HashMap::new(),
                         ));
                     }
@@ -102,18 +107,22 @@ pub fn transform(root: &Module) -> core::result::Result<IrProgram, Vec<TrsError>
     // Pass 3: function bodies
     let mut functions = Vec::new();
     let mut local_inits = Vec::new();
-    for symbol in globals.symbols() {
+    for symbol in symbol_tree.symbols() {
         let SymbolType::Func(func) = symbol.symbol_type else {
             continue;
         };
         // Inline functions only exist where they are expanded
         if func.marker == FuncMarker::Inline {
             if func.storage != MemStorage::Undefined {
-                errors.push(TrsError::new(func.span, TrsErrorKind::InlinePlacement));
+                errors.push(LowError::new(func.span, LowErrorKind::InlinePlacement));
             }
             continue;
         }
-        let lowerer = FuncLowerer::new(&globals, globals.module_of(symbol), symbol.path().clone());
+        let lowerer = FuncLowerer::new(
+            &symbol_tree,
+            symbol_tree.module_of(symbol),
+            symbol.path().clone(),
+        );
         match lowerer.lower(func, symbol.bank.as_ref()) {
             Ok(lowered) => {
                 local_inits.extend(lowered.static_inits);
@@ -139,22 +148,17 @@ pub fn transform(root: &Module) -> core::result::Result<IrProgram, Vec<TrsError>
         }
     };
 
-    // An error in an inline function is found again at each expansion
-    let mut unique_errors: Vec<TrsError> = Vec::with_capacity(errors.len());
-    for error in errors {
-        if !unique_errors.contains(&error) {
-            unique_errors.push(error);
-        }
-    }
-    let errors = unique_errors;
-
-    match init {
-        Some(init) if errors.is_empty() => Ok(IrProgram {
+    // Check if errors have been encountered
+    if let Some(init) = init
+        && errors.is_empty()
+    {
+        Ok(IrProgram {
             data,
             init,
             functions,
-        }),
-        _ => Err(errors),
+        })
+    } else {
+        Err(filter_unique_errors(errors))
     }
 }
 
@@ -170,12 +174,11 @@ fn push_new_data(data: &mut Vec<IrData>, cells: Vec<IrData>) {
 
 #[cfg(test)]
 mod tests {
-    use crate::transform::test_utils::*;
-    use crate::transform::{TrsError, TrsErrorKind, transform};
+    use crate::{LowError, LowErrorKind, test_utils::*, translate};
 
     #[test]
     fn reports_every_error() {
-        let errors = transform(&parse(
+        let errors = translate(&parse(
             "fn f in code () { break; goto 'nowhere; unknown = 1; }
              fn f in code () {}",
         ))
@@ -183,29 +186,29 @@ mod tests {
 
         assert!(errors.iter().any(|e| matches!(
             e,
-            TrsError {
-                kind: TrsErrorKind::Duplicate { .. },
+            LowError {
+                kind: LowErrorKind::Duplicate { .. },
                 ..
             }
         )));
         assert!(errors.iter().any(|e| matches!(
             e,
-            TrsError {
-                kind: TrsErrorKind::OutsideLoop,
+            LowError {
+                kind: LowErrorKind::OutsideLoop,
                 ..
             }
         )));
         assert!(errors.iter().any(|e| matches!(
             e,
-            TrsError {
-                kind: TrsErrorKind::UnknownLabel { .. },
+            LowError {
+                kind: LowErrorKind::UnknownLabel { .. },
                 ..
             }
         )));
         assert!(errors.iter().any(|e| matches!(
             e,
-            TrsError {
-                kind: TrsErrorKind::Unresolved { .. },
+            LowError {
+                kind: LowErrorKind::Unresolved { .. },
                 ..
             }
         )));

@@ -1,6 +1,6 @@
 //! Helpers shared by the unit tests of the translator
 
-use crate::transform::transform;
+use crate::translate;
 use asmanite_ast::parser::module::Module;
 use asmanite_ast::{
     chumsky::{
@@ -43,8 +43,8 @@ pub fn parse(source: &str) -> Module {
         .expect("test source should parse")
 }
 
-pub fn translate(source: &str) -> IrProgram {
-    transform(&parse(source)).expect("test source should translate")
+pub fn run_translation(source: &str) -> IrProgram {
+    translate(&parse(source)).expect("test source should translate")
 }
 
 pub fn function<'p>(program: &'p IrProgram, name: &str) -> &'p IrFunc {

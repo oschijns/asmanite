@@ -3,27 +3,27 @@
 use asmanite_common::{ident::Ident, path::Path, span::Span};
 
 /// Error raised while translating the AST into the IR
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(thiserror::Error, Debug, Clone, PartialEq)]
 #[error("{kind}")]
-pub struct TrsError {
-    /// SPan of the error
+pub struct LowError {
+    /// Span of the error
     pub span: Span,
 
     /// Kind of error encountered
-    pub kind: TrsErrorKind,
+    pub kind: LowErrorKind,
 }
 
-impl TrsError {
+impl LowError {
     /// Create a new error
     #[inline]
-    pub fn new(span: Span, kind: TrsErrorKind) -> Self {
+    pub fn new(span: Span, kind: LowErrorKind) -> Self {
         Self { span, kind }
     }
 }
 
 /// Error raised while translating the AST into the IR
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
-pub enum TrsErrorKind {
+#[derive(thiserror::Error, Debug, Clone, PartialEq)]
+pub enum LowErrorKind {
     #[error("`{ident}` is defined multiple times in the same module")]
     Duplicate { ident: Ident },
 
@@ -81,10 +81,21 @@ pub enum TrsErrorKind {
     Unsupported { what: &'static str },
 }
 
-pub type Result<T> = core::result::Result<T, TrsError>;
+pub type Result<T> = core::result::Result<T, LowError>;
 
 /// Shorthand to report an unsupported feature
 #[inline]
 pub fn unsupported<T>(what: &'static str, span: Span) -> Result<T> {
-    Err(TrsError::new(span, TrsErrorKind::Unsupported { what }))
+    Err(LowError::new(span, LowErrorKind::Unsupported { what }))
+}
+
+/// Filter out repeated errors which result from inline function expansion
+pub fn filter_unique_errors(errors: Vec<LowError>) -> Box<[LowError]> {
+    let mut out = Vec::with_capacity(errors.len());
+    for err in errors {
+        if !out.contains(&err) {
+            out.push(err);
+        }
+    }
+    out.into_boxed_slice()
 }

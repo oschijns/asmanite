@@ -1,7 +1,7 @@
 //! Startup routine: runtime initialization of the static variables
 
 use super::{
-    error::TrsError,
+    error::LowError,
     function::{FuncLowerer, Lowered},
     scope::Local,
 };
@@ -68,7 +68,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
 
     /// Finalize the startup routine.
     /// Return every error found in the initializers if it could not be lowered.
-    pub fn finish_init(mut self) -> core::result::Result<Lowered<'a>, Vec<TrsError>> {
+    pub fn finish_init(mut self) -> core::result::Result<Lowered<'a>, Vec<LowError>> {
         // Statics declared in inline functions expanded by the startup routine
         while let Some(init) = self.static_inits.pop() {
             self.lower_static_init(init);
@@ -95,14 +95,13 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
 #[cfg(test)]
 mod tests {
     use crate::symbol::ROOT;
-    use crate::transform::test_utils::*;
-    use crate::transform::{TrsError, TrsErrorKind, transform};
+    use crate::{LowError, LowErrorKind, test_utils::*, translate};
     use asmanite_common::{ident::Ident, path::Path};
     use asmanite_ir::intermediate::{IrData, IrStorage, OpCode, Operand};
 
     #[test]
     fn reserves_statics_and_initializes_them_at_startup() {
-        let program = translate(
+        let program = run_translation(
             "const LIMIT: u8 = 2 + 3;
              static DEVICE: u8 at 0x0010 = a = LIMIT;
              static BUFFER: [u8; LIMIT] in ram;
@@ -138,7 +137,7 @@ mod tests {
 
     #[test]
     fn initializes_function_statics_after_global_ones() {
-        let program = translate(
+        let program = run_translation(
             "fn f in code () {
                 const OFFSET: u8 = 2;
                 static COUNT: u8 in ram = a = OFFSET;
@@ -168,13 +167,13 @@ mod tests {
 
     #[test]
     fn rejects_runtime_values_in_static_initializers() {
-        let errors = transform(&parse(
+        let errors = translate(&parse(
             "fn f in code (v: u8 in zp) { static S: u8 in ram = a = v; }",
         ))
         .expect_err("translation should fail");
 
         assert!(
-            matches!(&errors[..], [TrsError { kind: TrsErrorKind::NotAtStartup { ident, .. }, .. }]
+            matches!(&errors[..], [LowError { kind: LowErrorKind::NotAtStartup { ident, .. }, .. }]
                 if *ident == Ident::new("v")),
             "unexpected errors: {errors:?}"
         );

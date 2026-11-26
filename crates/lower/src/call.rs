@@ -1,10 +1,10 @@
 //! Lowering of function calls
 
-use super::{
-    error::{Result, TrsError, TrsErrorKind},
+use crate::{
+    error::{LowError, LowErrorKind, Result},
     function::{FuncLowerer, param_operand, return_operand},
+    symbol::{SymbolType, no_locals},
 };
-use crate::symbol::{SymbolType, no_locals};
 use asmanite_ast::parser::{expression::FunctionCall, function::FuncMarker};
 use asmanite_ir::intermediate::{OpCode, Operand};
 
@@ -14,9 +14,9 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
     pub fn lower_call(&mut self, call: &'a FunctionCall) -> Result<Option<Operand>> {
         let symbol = self.globals.resolve(self.module, &call.callee, call.span)?;
         let SymbolType::Func(func) = symbol.symbol_type else {
-            return Err(TrsError::new(
+            return Err(LowError::new(
                 call.span,
-                TrsErrorKind::WrongKind {
+                LowErrorKind::WrongKind {
                     path: call.callee.clone(),
                     expected: "function",
                 },
@@ -25,9 +25,9 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
 
         let params = &func.parameters;
         let arg_count_error = || {
-            TrsError::new(
+            LowError::new(
                 call.span,
-                TrsErrorKind::ArgCount {
+                LowErrorKind::ArgCount {
                     expected: params.len(),
                     found: call.args.len(),
                 },
@@ -75,14 +75,13 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
 
 #[cfg(test)]
 mod tests {
-
-    use crate::transform::test_utils::*;
+    use crate::test_utils::*;
     use asmanite_common::path::Path;
     use asmanite_ir::intermediate::{OpCode, Operand};
 
     #[test]
     fn lowers_calls_with_default_arguments() {
-        let program = translate(
+        let program = run_translation(
             "fn add in code (a, x = 1) -> a { a += x; return a; }
              fn main in code () { var total: u8 in ram; total = add(2); }",
         );

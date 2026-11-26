@@ -1,7 +1,7 @@
 //! Lowering of expressions onto operands, without temporaries
 
 use super::{
-    error::{Result, TrsError, TrsErrorKind, unsupported},
+    error::{LowError, LowErrorKind, Result, unsupported},
     function::FuncLowerer,
 };
 use crate::symbol::{SymbolType, no_locals};
@@ -36,7 +36,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                     ));
                     Ok(place)
                 }
-                _ => Err(TrsError::new(expr.span(), TrsErrorKind::NotAnOperand)),
+                _ => Err(LowError::new(expr.span(), LowErrorKind::NotAnOperand)),
             },
             Expr::Assign(assign) => {
                 let dst = self.lower_place(&assign.lhs)?;
@@ -54,16 +54,16 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                 Ok(dst)
             }
             Expr::Call(call) => self.lower_call(call)?.ok_or_else(|| {
-                TrsError::new(
+                LowError::new(
                     call.span,
-                    TrsErrorKind::NoReturnValue {
+                    LowErrorKind::NoReturnValue {
                         path: call.callee.clone(),
                     },
                 )
             }),
             // Status flags, comparisons and other operations need a destination
             Expr::Status(_) | Expr::Binary(_) => {
-                Err(TrsError::new(expr.span(), TrsErrorKind::NotAnOperand))
+                Err(LowError::new(expr.span(), LowErrorKind::NotAnOperand))
             }
         }
     }
@@ -87,7 +87,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                 }
                 OpType::BitAnd | OpType::Mul => unsupported("pointers", unary.span),
                 // `!` is a logical operator, only valid in conditions
-                OpType::Not => Err(TrsError::new(expr.span(), TrsErrorKind::NotAnOperand)),
+                OpType::Not => Err(LowError::new(expr.span(), LowErrorKind::NotAnOperand)),
                 _ => {
                     let src = self.lower_operand(&unary.expr)?;
                     self.emit(OpCode::Unary(OpUnary::new(unary.op, dst, src).to_box()));
@@ -98,7 +98,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
                 // Comparisons and logical operators are only valid in conditions
                 let op_type = binary.op.op_type;
                 if OpType::is_comparison(op_type) || matches!(op_type, OpType::And | OpType::Or) {
-                    return Err(TrsError::new(expr.span(), TrsErrorKind::NotAnOperand));
+                    return Err(LowError::new(expr.span(), LowErrorKind::NotAnOperand));
                 }
                 let lhs = self.lower_operand(&binary.lhs)?;
                 let rhs = self.lower_operand(&binary.rhs)?;
@@ -117,7 +117,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
 
     /// Lower an expression designating a location that can be written to
     pub fn lower_place(&mut self, expr: &'a Expr) -> Result<Operand> {
-        let not_assignable = || TrsError::new(expr.span(), TrsErrorKind::NotAssignable);
+        let not_assignable = || LowError::new(expr.span(), LowErrorKind::NotAssignable);
         match expr {
             Expr::Register(reg) => Ok(Operand::Reg(reg.atom)),
             Expr::Group(group) => self.lower_place(&group.atom),
@@ -133,7 +133,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
 
                 if let Some(value) = self.try_const(&index.index) {
                     let offset = i64::try_from(value).map_err(|_| {
-                        TrsError::new(index.index.span(), TrsErrorKind::NotConstant)
+                        LowError::new(index.index.span(), LowErrorKind::NotConstant)
                     })?;
                     cell.offset += offset * i64::from(elem_size);
                     Ok(Operand::Mem(cell))
@@ -186,14 +186,13 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::transform::test_utils::*;
-    use crate::transform::{TrsError, TrsErrorKind, transform};
+    use crate::{LowError, LowErrorKind, test_utils::*, translate};
     use asmanite_common::{ToBox, operator::op};
     use asmanite_ir::intermediate::{OpCode, OpUnary, Operand};
 
     #[test]
     fn maps_expressions_onto_operands_without_temporaries() {
-        let program = translate(
+        let program = run_translation(
             "fn f in code (v: u8 in zp) {
                 a = v + 1;
                 a += 2;
@@ -220,7 +219,7 @@ mod tests {
 
     #[test]
     fn rejects_expressions_needing_temporaries() {
-        let errors = transform(&parse(
+        let errors = translate(&parse(
             "fn f in code () {
                 a = x + y * 2;
                 a = x < y;
@@ -234,20 +233,20 @@ mod tests {
             matches!(
                 &errors[..],
                 [
-                    TrsError {
-                        kind: TrsErrorKind::NotAnOperand,
+                    LowError {
+                        kind: LowErrorKind::NotAnOperand,
                         ..
                     },
-                    TrsError {
-                        kind: TrsErrorKind::NotAnOperand,
+                    LowError {
+                        kind: LowErrorKind::NotAnOperand,
                         ..
                     },
-                    TrsError {
-                        kind: TrsErrorKind::NotAnOperand,
+                    LowError {
+                        kind: LowErrorKind::NotAnOperand,
                         ..
                     },
-                    TrsError {
-                        kind: TrsErrorKind::NoEffect,
+                    LowError {
+                        kind: LowErrorKind::NoEffect,
                         ..
                     },
                 ]

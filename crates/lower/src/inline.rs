@@ -1,7 +1,7 @@
 //! Expansion of the inline functions at their call sites
 
 use super::{
-    error::{Result, TrsError, TrsErrorKind, unsupported},
+    error::{LowError, LowErrorKind, Result, unsupported},
     function::{FuncLowerer, child, is_comptime, param_operand},
     scope::Local,
     statement::{LoopFrame, collect_labels},
@@ -17,16 +17,16 @@ use std::collections::{HashMap, HashSet};
 
 /// State of the function being lowered, saved while an inline function is expanded
 pub struct Context<'a> {
-    pub(super) module: NodeId,
-    pub(super) path: Path,
-    pub(super) label_path: Path,
-    pub(super) scopes: Vec<HashMap<Ident, Local<'a>>>,
-    pub(super) labels: HashSet<Ident>,
-    pub(super) loops: Vec<LoopFrame>,
-    pub(super) ret: Option<Operand>,
-    pub(super) exit: LabelId,
-    pub(super) locals: Vec<IrData>,
-    pub(super) startup: bool,
+    pub(crate) module: NodeId,
+    pub(crate) path: Path,
+    pub(crate) label_path: Path,
+    pub(crate) scopes: Vec<HashMap<Ident, Local<'a>>>,
+    pub(crate) labels: HashSet<Ident>,
+    pub(crate) loops: Vec<LoopFrame>,
+    pub(crate) ret: Option<Operand>,
+    pub(crate) exit: LabelId,
+    pub(crate) locals: Vec<IrData>,
+    pub(crate) startup: bool,
 }
 
 impl<'g, 'a> FuncLowerer<'g, 'a> {
@@ -40,9 +40,9 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
         span: Span,
     ) -> Result<Option<Operand>> {
         if self.inline_stack.contains(symbol.path()) {
-            return Err(TrsError::new(
+            return Err(LowError::new(
                 span,
-                TrsErrorKind::RecursiveInline {
+                LowErrorKind::RecursiveInline {
                     path: symbol.path().clone(),
                 },
             ));
@@ -54,7 +54,7 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
         // Compile-time parameters need a constant argument
         for (param, arg) in func.parameters.iter().zip(&args) {
             if is_comptime(param) && !matches!(arg, Operand::Imm(_)) {
-                return Err(TrsError::new(span, TrsErrorKind::NotConstant));
+                return Err(LowError::new(span, LowErrorKind::NotConstant));
             }
         }
         for (param, arg) in func.parameters.iter().zip(&args) {
@@ -116,14 +116,13 @@ impl<'g, 'a> FuncLowerer<'g, 'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::transform::test_utils::*;
-    use crate::transform::{TrsError, TrsErrorKind, transform};
+    use crate::{LowError, LowErrorKind, test_utils::*, translate};
     use asmanite_common::{ident::Ident, operator::op, path::Path};
     use asmanite_ir::intermediate::{IrData, IrStorage, Label, OpCode, Operand};
 
     #[test]
     fn expands_inline_functions_at_each_call_site() {
-        let program = translate(
+        let program = run_translation(
             "inline fn add_to(v: u8 in zp, x, let amount: u8 = 1) -> a {
                 a = v;
                 a += amount;
@@ -174,7 +173,7 @@ mod tests {
 
     #[test]
     fn expands_nested_inline_functions() {
-        let program = translate(
+        let program = run_translation(
             "inline fn inner() { a += 1; }
              inline fn outer() { inner(); inner(); }
              fn main in code () { outer(); }",
@@ -198,7 +197,7 @@ mod tests {
 
     #[test]
     fn rejects_recursive_inline_functions() {
-        let errors = transform(&parse(
+        let errors = translate(&parse(
             "inline fn ping() { pong(); }
              inline fn pong() { ping(); }
              fn main in code () { ping(); }",
@@ -206,7 +205,7 @@ mod tests {
         .expect_err("translation should fail");
 
         assert!(
-            matches!(&errors[..], [TrsError { kind: TrsErrorKind::RecursiveInline { path, .. }, .. }]
+            matches!(&errors[..], [LowError { kind: LowErrorKind::RecursiveInline { path, .. }, .. }]
                 if *path == Path::from("ping")),
             "unexpected errors: {errors:?}"
         );
@@ -214,7 +213,7 @@ mod tests {
 
     #[test]
     fn reports_errors_of_inline_functions_once() {
-        let errors = transform(&parse(
+        let errors = translate(&parse(
             "inline fn bad() { unknown = 1; }
              fn main in code () { bad(); bad(); }",
         ))
@@ -223,8 +222,8 @@ mod tests {
         assert!(
             matches!(
                 &errors[..],
-                [TrsError {
-                    kind: TrsErrorKind::Unresolved { .. },
+                [LowError {
+                    kind: LowErrorKind::Unresolved { .. },
                     ..
                 }]
             ),
@@ -234,7 +233,7 @@ mod tests {
 
     #[test]
     fn requires_constant_arguments_for_compile_time_parameters() {
-        let errors = transform(&parse(
+        let errors = translate(&parse(
             "inline fn shift(let count: u8) { a <<= count; }
              fn main in code (v: u8 in zp) { shift(v); }",
         ))
@@ -243,8 +242,8 @@ mod tests {
         assert!(
             matches!(
                 &errors[..],
-                [TrsError {
-                    kind: TrsErrorKind::NotConstant,
+                [LowError {
+                    kind: LowErrorKind::NotConstant,
                     ..
                 }]
             ),

@@ -2,7 +2,7 @@
 //! how they are registered from the AST (pass 1 of the translation)
 //! and evaluation of the compile-time constants they declare.
 
-use crate::transform::error::{Result, TrsError, TrsErrorKind, unsupported};
+use crate::error::{LowError, LowErrorKind, Result, unsupported};
 use asmanite_ast::{
     lexer::atom::VarType,
     parser::{
@@ -243,7 +243,7 @@ impl<'a> SymbolTree<'a> {
     pub fn resolve(&self, module: NodeId, path: &Path, span: Span) -> Result<&SymbolData<'a>> {
         self.resolve_path_from(module, path)
             .and_then(|node| self.get(node))
-            .ok_or_else(|| TrsError::new(span, TrsErrorKind::Unresolved { path: path.clone() }))
+            .ok_or_else(|| LowError::new(span, LowErrorKind::Unresolved { path: path.clone() }))
     }
 
     /// Module in which a symbol is declared (the root module is in itself)
@@ -256,7 +256,7 @@ impl<'a> SymbolTree<'a> {
 
 impl<'a> SymbolTree<'a> {
     /// Pass 1: register the elements of a module and of its sub-modules
-    pub fn collect(&mut self, module: &'a Module, node: NodeId, errors: &mut Vec<TrsError>) {
+    pub fn collect(&mut self, module: &'a Module, node: NodeId, errors: &mut Vec<LowError>) {
         for element in module.elements.iter() {
             let declared = match element {
                 ModElement::Mod(sub) => self
@@ -323,9 +323,9 @@ impl<'a> SymbolTree<'a> {
     ) -> Result<NodeId> {
         self.insert(parent, ident.clone(), symbol_type, bank)
             .map_err(|_| {
-                TrsError::new(
+                LowError::new(
                     span,
-                    TrsErrorKind::Duplicate {
+                    LowErrorKind::Duplicate {
                         ident: ident.clone(),
                     },
                 )
@@ -367,7 +367,7 @@ impl<'a> SymbolTree<'a> {
         locals: LocalConsts,
         visiting: &mut Vec<NodeId>,
     ) -> Result<Number> {
-        let not_const = || TrsError::new(expr.span(), TrsErrorKind::NotConstant);
+        let not_const = || LowError::new(expr.span(), LowErrorKind::NotConstant);
 
         match expr {
             Expr::Lit(lit) => Number::from_literal(&lit.atom).ok_or_else(not_const),
@@ -381,9 +381,9 @@ impl<'a> SymbolTree<'a> {
                     SymbolValue::None => {}
                 }
                 let node = self.resolve_path_from(module, &var.atom).ok_or_else(|| {
-                    TrsError::new(
+                    LowError::new(
                         var.span,
-                        TrsErrorKind::Unresolved {
+                        LowErrorKind::Unresolved {
                             path: var.atom.clone(),
                         },
                     )
@@ -399,9 +399,9 @@ impl<'a> SymbolTree<'a> {
                     return Err(not_const());
                 };
                 if visiting.contains(&node) {
-                    return Err(TrsError::new(
+                    return Err(LowError::new(
                         var.span,
-                        TrsErrorKind::CyclicConstant {
+                        LowErrorKind::CyclicConstant {
                             path: symbol.path.clone(),
                         },
                     ));
@@ -431,7 +431,7 @@ impl<'a> SymbolTree<'a> {
     /// Evaluate a fixed address
     pub fn address(&self, expr: &Expr, module: NodeId, locals: LocalConsts) -> Result<Addr> {
         let value = self.eval_const(expr, module, locals, &mut Vec::new())?;
-        Addr::try_from(value).map_err(|_| TrsError::new(expr.span(), TrsErrorKind::NotConstant))
+        Addr::try_from(value).map_err(|_| LowError::new(expr.span(), LowErrorKind::NotConstant))
     }
 }
 
@@ -760,7 +760,7 @@ mod tests {
         let error = f.tree.resolve(f.inner, &Path::from("missing"), span);
         assert_eq!(
             error.map(SymbolData::path).unwrap_err().kind,
-            TrsErrorKind::Unresolved {
+            LowErrorKind::Unresolved {
                 path: Path::from("missing")
             }
         );

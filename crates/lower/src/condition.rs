@@ -81,15 +81,13 @@ pub fn negate(op: Operator) -> Operator {
 
 #[cfg(test)]
 mod tests {
-
+    use crate::test_utils::*;
     use asmanite_common::{operator::op, path::Path};
-
-    use crate::transform::test_utils::*;
     use asmanite_ir::intermediate::{Label, OpCode, Operand};
 
     #[test]
     fn lowers_labeled_loops_and_short_circuit_conditions() {
-        let program = translate(
+        let program = run_translation(
             "fn f in code () {
                 'outer: loop {
                     while a < 10 && x != 0 { break 'outer; }

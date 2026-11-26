@@ -1,6 +1,6 @@
 //! Placement and size of the memory cells
 
-use super::error::{Result, TrsError, TrsErrorKind, unsupported};
+use super::error::{LowError, LowErrorKind, Result, unsupported};
 use crate::symbol::{LocalConsts, NodeId, SymbolData, SymbolTree, no_locals};
 use asmanite_ast::{
     lexer::atom::VarType,
@@ -27,7 +27,7 @@ impl<'a> SymbolTree<'a> {
                 let value = var
                     .assign_expr
                     .as_ref()
-                    .ok_or(TrsError::new(var.span, TrsErrorKind::NotConstant))?;
+                    .ok_or(LowError::new(var.span, LowErrorKind::NotConstant))?;
                 self.eval_const(value, module, &no_locals, &mut Vec::new())?;
                 Ok(None)
             }
@@ -36,9 +36,9 @@ impl<'a> SymbolTree<'a> {
                 self.size_of(&var.type_used, module, &no_locals)?,
                 self.var_storage(var, module, &no_locals, symbol.bank.as_ref())?,
             ))),
-            VarType::Var | VarType::Let | VarType::Stack => Err(TrsError::new(
+            VarType::Var | VarType::Let | VarType::Stack => Err(LowError::new(
                 var.span,
-                TrsErrorKind::NotInModule {
+                LowErrorKind::NotInModule {
                     var_type: var.var_type.into(),
                 },
             )),
@@ -55,7 +55,7 @@ impl<'a> SymbolTree<'a> {
                 u32::try_from(count)
                     .ok()
                     .and_then(|count| count.checked_mul(cell))
-                    .ok_or(TrsError::new(array.size.span(), TrsErrorKind::NotConstant))
+                    .ok_or(LowError::new(array.size.span(), LowErrorKind::NotConstant))
             }
             // TODO: struct/union/enum layouts, named types, tuples, pointers
             _ => unsupported("this kind of type", ty.span()),
@@ -90,9 +90,9 @@ impl<'a> SymbolTree<'a> {
         self.mem_storage(&var.storage, module, locals)?
             .or_else(|| bank.map(|bank| IrStorage::Bank(bank.clone())))
             .ok_or_else(|| {
-                TrsError::new(
+                LowError::new(
                     var.span,
-                    TrsErrorKind::MissingStorage {
+                    LowErrorKind::MissingStorage {
                         ident: var.ident.clone(),
                     },
                 )
@@ -117,8 +117,7 @@ impl<'a> SymbolTree<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::transform::test_utils::*;
-    use crate::transform::{TrsError, TrsErrorKind, transform};
+    use crate::{LowError, LowErrorKind, test_utils::*, translate};
     use asmanite_common::ident::Ident;
     use asmanite_ir::intermediate::IrStorage;
 
@@ -129,16 +128,16 @@ mod tests {
             "mod sub { static FLAG: u8; }",
             "fn f in code () { var local: u8; }",
         ] {
-            let errors = transform(&parse(source)).expect_err("translation should fail");
+            let errors = translate(&parse(source)).expect_err("translation should fail");
             assert!(
-                matches!(&errors[..], [TrsError { kind: TrsErrorKind::MissingStorage { ident, .. }, .. }]
+                matches!(&errors[..], [LowError { kind: LowErrorKind::MissingStorage { ident, .. }, .. }]
                     if *ident == Ident::new("FLAG") || *ident == Ident::new("local")),
                 "unexpected errors for {source:?}: {errors:?}"
             );
         }
 
         // An in-bank block gives a placement to its variables
-        let program = translate("fn f in code () { in ram { var local: u8; } }");
+        let program = run_translation("fn f in code () { in ram { var local: u8; } }");
         assert_eq!(
             function(&program, "f").locals[0].storage,
             IrStorage::Bank(Ident::new("ram"))
@@ -152,9 +151,9 @@ mod tests {
             ("let value: u8 = 1;", "let"),
             ("stack value: u8;", "stack"),
         ] {
-            let errors = transform(&parse(source)).expect_err("translation should fail");
+            let errors = translate(&parse(source)).expect_err("translation should fail");
             assert!(
-                matches!(&errors[..], [TrsError { kind: TrsErrorKind::NotInModule { var_type: found, .. }, .. }]
+                matches!(&errors[..], [LowError { kind: LowErrorKind::NotInModule { var_type: found, .. }, .. }]
                     if *found == var_type),
                 "unexpected errors for {source:?}: {errors:?}"
             );
