@@ -1,9 +1,3 @@
-/// MOS 6502 backend
-pub mod mos6502;
-
-/// Sharp SM83 backend
-pub mod sm83;
-
 use crate::Addr;
 use crate::intermediate::IrProgram;
 use crate::link::{Image, Symbol};

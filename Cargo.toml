@@ -5,6 +5,9 @@ members = [
     "crates/ir",
     "crates/lower",
     "crates/compiler",
+    "crates/backend-m6502",
+    "crates/backend-z80",
+    "crates/backend-m68k",
 ]
 resolver = "2"
 

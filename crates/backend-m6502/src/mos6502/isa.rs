@@ -1,8 +1,10 @@
 //! Instruction set of the NMOS 6502 (official opcodes only) and its encoding
 
-use crate::Addr;
-use crate::backend::BackendError;
-use crate::link::{Instruction, Symbol, SymbolTable};
+use asmanite_ir::{
+    Addr,
+    backend::BackendError,
+    link::{Instruction, Symbol, SymbolTable},
+};
 use bytes::{BufMut, BytesMut};
 use core::fmt;
 

@@ -14,12 +14,12 @@ pub mod isa;
 /// Instruction selection
 mod select;
 
-use crate::{
+use asmanite_common::{primitive::def::U8, register::RegDef};
+use asmanite_ir::{
     backend::{Backend, BackendError},
     intermediate::IrProgram,
     link::{self, Image, Layout, MemoryMap, Section},
 };
-use asmanite_common::{primitive::def::U8, register::RegDef};
 use isa::Op;
 
 /// Registers of the 6502, to declare with [`registers_init`](asmanite_common::register::registers_init)
@@ -74,13 +74,6 @@ mod tests {
         isa::{Mnemonic, Mode, opcode},
         *,
     };
-    use crate::{
-        intermediate::{
-            Condition, IrData, IrFunc, IrStorage, JumpTarget, Label, MemCell, OpBinary, OpBranch,
-            OpCode, OpCompare, OpTransfer, OpUnary, Operand,
-        },
-        link::{Bank, BankKind, Symbol},
-    };
     use asmanite_common::{
         ToBox,
         ident::Ident,
@@ -88,6 +81,13 @@ mod tests {
         path::Path,
         register::RegIdent,
         status::StatusFlag,
+    };
+    use asmanite_ir::{
+        intermediate::{
+            Condition, IrData, IrFunc, IrStorage, JumpTarget, Label, MemCell, OpBinary, OpBranch,
+            OpCode, OpCompare, OpTransfer, OpUnary, Operand,
+        },
+        link::{Bank, BankKind, Symbol},
     };
     use std::collections::HashSet;
 

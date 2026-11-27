@@ -16,20 +16,20 @@ use super::isa::{
     Mnemonic::{self, *},
     Mode, Op, Target, opcode,
 };
-use crate::{
-    backend::BackendError,
-    intermediate::{
-        Condition, IrFunc, JumpTarget, Label, MemCell, OpBinary, OpCode, OpCompare, OpUnary,
-        Operand,
-    },
-    link::{Item, Section, Symbol, SymbolTable},
-};
 use asmanite_common::{
     number::Number,
     operator::{OpType, Operator},
     path::Path,
     register::RegIdent,
     status::StatusFlag,
+};
+use asmanite_ir::{
+    backend::BackendError,
+    intermediate::{
+        Condition, IrFunc, JumpTarget, Label, MemCell, OpBinary, OpCode, OpCompare, OpUnary,
+        Operand,
+    },
+    link::{Item, Section, Symbol, SymbolTable},
 };
 
 type Result<T> = core::result::Result<T, BackendError>;
