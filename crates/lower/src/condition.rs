@@ -19,18 +19,20 @@ impl<'g, 'a, 's> FuncLowerer<'g, 'a, 's> {
             return Ok(());
         }
 
-        // TODO: REWORK
-
         match expr {
+            // Sub-expression
             Expr::Group(group) => self.lower_cond(&group.atom, when, target),
+            // CPU status flag
             Expr::Status(flag) => {
                 let cond = Condition::status(flag.atom, !when);
                 self.branch(cond, target);
                 Ok(())
             }
+            // Logic NOT `!`
             Expr::Unary(unary) if unary.op.op_type == OpType::Not => {
                 self.lower_cond(&unary.expr, !when, target)
             }
+            // Logic AND `&&`
             Expr::Binary(binary) if binary.op.op_type == OpType::And => {
                 if when {
                     // jump if both are true: skip as soon as one is false
@@ -44,6 +46,7 @@ impl<'g, 'a, 's> FuncLowerer<'g, 'a, 's> {
                 }
                 Ok(())
             }
+            // Logic OR `||`
             Expr::Binary(binary) if binary.op.op_type == OpType::Or => {
                 if when {
                     self.lower_cond(&binary.lhs, true, target)?;
@@ -57,6 +60,7 @@ impl<'g, 'a, 's> FuncLowerer<'g, 'a, 's> {
                 }
                 Ok(())
             }
+            // Comparison `==`, `!=`, `<`, `<=`, `>`, `>=`
             Expr::Binary(binary) if OpType::is_comparison(binary.op.op_type) => {
                 let lhs = self.lower_operand(&binary.lhs)?;
                 let rhs = self.lower_operand(&binary.rhs)?;
